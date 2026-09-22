@@ -10,5 +10,8 @@ public interface BotCommandHandler {
      */
     String name();
 
-    void handle(CommandContext context);
+    /**
+     * @return true 表示处理成功（所有 Telegram API 调用均成功）；false 表示存在失败的调用
+     */
+    boolean handle(CommandContext context);
 }

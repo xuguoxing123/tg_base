@@ -24,7 +24,7 @@ public class EchoCommandHandler implements BotCommandHandler {
     }
 
     @Override
-    public void handle(CommandContext context) {
-        apiService.sendText(context.chatId(), "📩 你发送的消息是：\n" + context.arguments());
+    public boolean handle(CommandContext context) {
+        return apiService.sendText(context.chatId(), "📩 你发送的消息是：\n" + context.arguments()).isPresent();
     }
 }

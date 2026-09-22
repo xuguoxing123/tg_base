@@ -105,18 +105,40 @@ public class TelegramBot extends TelegramLongPollingBot {
             handler = fallbackCommandHandler;
         }
         if (handler != null) {
-            handler.handle(new CommandContext(chatId, userId, text));
+            CommandContext context = new CommandContext(chatId, userId, text);
+            String handlerName = handler.getClass().getSimpleName();
+            long start = System.nanoTime();
+            boolean success = false;
+            log.info("开始执行处理器: {}, 参数: {}", handlerName, context);
+            try {
+                success = handler.handle(context);
+            } finally {
+                log.info("处理器执行结束: {}, 成功: {}, 耗时: {}ms", handlerName, success, elapsedMs(start));
+            }
         }
     }
 
     private void dispatchCallback(CallbackQuery callbackQuery) {
         CallbackQueryHandler handler = callbackHandlers.get(callbackQuery.getData());
         if (handler != null) {
-            handler.handle(callbackQuery);
+            String handlerName = handler.getClass().getSimpleName();
+            long start = System.nanoTime();
+            boolean success = false;
+            log.info("开始执行回调处理器: {}, chatId: {}, messageId: {}", handlerName,
+                    callbackQuery.getMessage().getChatId(), callbackQuery.getMessage().getMessageId());
+            try {
+                success = handler.handle(callbackQuery);
+            } finally {
+                log.info("回调处理器执行结束: {}, 成功: {}, 耗时: {}ms", handlerName, success, elapsedMs(start));
+            }
         } else {
             log.warn("未找到回调处理器, callbackData: {}", callbackQuery.getData());
         }
         // 必须应答回调，否则按钮会一直处于加载状态
         apiService.answerCallback(callbackQuery.getId(), CALLBACK_ANSWER_TEXT);
+    }
+
+    private static long elapsedMs(long startNanos) {
+        return (System.nanoTime() - startNanos) / 1_000_000;
     }
 }

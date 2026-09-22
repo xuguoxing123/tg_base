@@ -12,5 +12,8 @@ public interface CallbackQueryHandler {
      */
     String data();
 
-    void handle(CallbackQuery callbackQuery);
+    /**
+     * @return true 表示处理成功（所有 Telegram API 调用均成功）；false 表示存在失败的调用
+     */
+    boolean handle(CallbackQuery callbackQuery);
 }

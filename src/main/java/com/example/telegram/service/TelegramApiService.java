@@ -11,8 +11,11 @@ import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.objects.InputFile;
+import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+
+import java.util.Optional;
 
 /**
  * Telegram API 统一出口：封装 execute 调用、异常处理与日志，
@@ -27,60 +30,67 @@ public class TelegramApiService extends DefaultAbsSender {
         super(botOptions, properties.token());
     }
 
-    public void sendText(long chatId, String text) {
+    public Optional<Message> sendText(long chatId, String text) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId);
         message.setText(text);
-        executeQuietly("sendMessage", () -> execute(message));
+        return executeQuietly("sendMessage", () -> execute(message));
     }
 
-    public void sendText(long chatId, String text, InlineKeyboardMarkup replyMarkup) {
+    public Optional<Message> sendText(long chatId, String text, InlineKeyboardMarkup replyMarkup) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId);
         message.setText(text);
         message.setReplyMarkup(replyMarkup);
-        executeQuietly("sendMessage", () -> execute(message));
+        return executeQuietly("sendMessage", () -> execute(message));
     }
 
-    public void sendPhoto(long chatId, String photoUrl, String caption) {
+    public Optional<Message> sendPhoto(long chatId, String photoUrl, String caption) {
         SendPhoto photo = new SendPhoto();
         photo.setChatId(chatId);
         // 可以是网络图片URL，也可以是本地文件
         photo.setPhoto(new InputFile(photoUrl));
         photo.setCaption(caption);
-        executeQuietly("sendPhoto", () -> execute(photo));
+        return executeQuietly("sendPhoto", () -> execute(photo));
     }
 
-    public void editMessageText(long chatId, int messageId, String newText) {
+    public Optional<Message> editMessageText(long chatId, int messageId, String newText) {
         EditMessageText message = new EditMessageText();
         message.setChatId(chatId);
         message.setMessageId(messageId);
         message.setText(newText);
-        executeQuietly("editMessageText", () -> execute(message));
+        // EditMessageText 响应声明为 Serializable（兼容 inline 消息场景），普通会话下实际就是 Message
+        return executeQuietly("editMessageText", () -> (Message) execute(message));
     }
 
-    public void answerCallback(String callbackQueryId, String alertText) {
+    public boolean answerCallback(String callbackQueryId, String alertText) {
         AnswerCallbackQuery answer = new AnswerCallbackQuery();
         answer.setCallbackQueryId(callbackQueryId);
         answer.setText(alertText);
         answer.setShowAlert(false);
-        executeQuietly("answerCallbackQuery", () -> execute(answer));
+        // 该 API 的响应体就是 Boolean，失败时用 false 表达
+        return executeQuietly("answerCallbackQuery", () -> execute(answer)).orElse(false);
     }
 
     /**
      * 统一执行并吞掉异常仅记录日志，避免单个 API 调用失败中断整个更新处理。
-     * 用函数式包装兼容 BotApiMethod 与媒体方法两套类型体系。
+     * 成功时返回 Telegram 服务器确认的响应体（如实际发送出的 Message，含真实 messageId、时间戳）。
+     *
+     * @return 有值表示调用成功；empty 表示抛出 TelegramApiException（详情已记 ERROR 日志）
      */
-    private void executeQuietly(String apiName, SendAction action) {
+    private <T> Optional<T> executeQuietly(String apiName, SendCall<T> call) {
         try {
-            action.run();
+            T result = call.call();
+            log.debug("Telegram API 成功: {}, 响应: {}", apiName, result);
+            return Optional.ofNullable(result);
         } catch (TelegramApiException e) {
             log.error("调用 Telegram API 失败: {}", apiName, e);
+            return Optional.empty();
         }
     }
 
     @FunctionalInterface
-    private interface SendAction {
-        void run() throws TelegramApiException;
+    private interface SendCall<T> {
+        T call() throws TelegramApiException;
     }
 }

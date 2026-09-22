@@ -23,7 +23,7 @@ public class PhotoCommandHandler implements BotCommandHandler {
     }
 
     @Override
-    public void handle(CommandContext context) {
-        apiService.sendPhoto(context.chatId(), PHOTO_URL, CAPTION);
+    public boolean handle(CommandContext context) {
+        return apiService.sendPhoto(context.chatId(), PHOTO_URL, CAPTION).isPresent();
     }
 }

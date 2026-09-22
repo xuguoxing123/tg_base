@@ -20,8 +20,8 @@ public class NoCallbackHandler implements CallbackQueryHandler {
     }
 
     @Override
-    public void handle(CallbackQuery callbackQuery) {
+    public boolean handle(CallbackQuery callbackQuery) {
         Message message = callbackQuery.getMessage();
-        apiService.editMessageText(message.getChatId(), message.getMessageId(), "❌ 你选择了【否】");
+        return apiService.editMessageText(message.getChatId(), message.getMessageId(), "❌ 你选择了【否】").isPresent();
     }
 }

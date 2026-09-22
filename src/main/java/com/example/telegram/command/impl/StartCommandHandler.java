@@ -26,7 +26,7 @@ public class StartCommandHandler implements BotCommandHandler {
     }
 
     @Override
-    public void handle(CommandContext context) {
-        apiService.sendText(context.chatId(), TEXT);
+    public boolean handle(CommandContext context) {
+        return apiService.sendText(context.chatId(), TEXT).isPresent();
     }
 }

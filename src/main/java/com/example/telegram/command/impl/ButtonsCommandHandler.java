@@ -25,7 +25,7 @@ public class ButtonsCommandHandler implements BotCommandHandler {
     }
 
     @Override
-    public void handle(CommandContext context) {
+    public boolean handle(CommandContext context) {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
 
         InlineKeyboardButton btnYes = new InlineKeyboardButton();
@@ -44,6 +44,6 @@ public class ButtonsCommandHandler implements BotCommandHandler {
         rows.add(row);
         markup.setKeyboard(rows);
 
-        apiService.sendText(context.chatId(), "请选择一个选项：", markup);
+        return apiService.sendText(context.chatId(), "请选择一个选项：", markup).isPresent();
     }
 }
