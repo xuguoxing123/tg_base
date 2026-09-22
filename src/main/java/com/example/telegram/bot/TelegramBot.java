@@ -91,6 +91,8 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     private void dispatchMessage(Update update) {
         long chatId = update.getMessage().getChatId();
+        // User 对象携带发送者信息；单聊场景下 chatId 与 userId 数值相同但语义不同
+        long userId = update.getMessage().getFrom() != null ? update.getMessage().getFrom().getId() : 0L;
         String text = update.getMessage().getText();
 
         BotCommandHandler handler = null;
@@ -103,7 +105,7 @@ public class TelegramBot extends TelegramLongPollingBot {
             handler = fallbackCommandHandler;
         }
         if (handler != null) {
-            handler.handle(new CommandContext(chatId, text));
+            handler.handle(new CommandContext(chatId, userId, text));
         }
     }
 

@@ -34,3 +34,6 @@ build/
 
 ### 本地敏感配置（含真实 token，不提交） ###
 application-local.properties
+
+### 日志输出目录 ###
+logs/
