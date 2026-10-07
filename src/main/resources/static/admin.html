@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Bot 指令管理</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f7fa; padding: 20px; }
+h1 { margin-bottom: 20px; color: #333; }
+.toolbar { margin-bottom: 16px; display: flex; gap: 10px; }
+button { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+.btn-primary { background: #409eff; color: #fff; }
+.btn-success { background: #67c23a; color: #fff; }
+.btn-warning { background: #e6a23c; color: #fff; }
+.btn-danger { background: #f56c6c; color: #fff; }
+.btn-info { background: #909399; color: #fff; }
+table { width: 100%; border-collapse: collapse; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.08); border-radius: 6px; overflow: hidden; }
+th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid #ebeef5; font-size: 14px; }
+th { background: #f5f7fa; color: #606266; font-weight: 600; }
+tr:hover { background: #f0f7ff; }
+.status-on { color: #67c23a; font-weight: bold; }
+.status-off { color: #f56c6c; }
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 100; justify-content: center; align-items: center; }
+.modal-overlay.active { display: flex; }
+.modal { background: #fff; border-radius: 8px; padding: 24px; width: 520px; max-height: 80vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,.15); }
+.modal h2 { margin-bottom: 16px; font-size: 18px; }
+.form-group { margin-bottom: 12px; }
+.form-group label { display: block; margin-bottom: 4px; font-size: 13px; color: #606266; }
+.form-group input, .form-group textarea, .form-group select { width: 100%; padding: 8px; border: 1px solid #dcdfe6; border-radius: 4px; font-size: 14px; }
+.form-group textarea { height: 80px; resize: vertical; }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+.toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 4px; color: #fff; font-size: 14px; z-index: 200; display: none; }
+.toast.show { display: block; }
+.toast.success { background: #67c23a; }
+.toast.error { background: #f56c6c; }
+</style>
+</head>
+<body>
+<h1>Bot 指令管理后台</h1>
+
+<div class="toolbar">
+    <button class="btn-primary" onclick="openCreate()">+ 新增指令</button>
+    <button class="btn-success" onclick="reloadRegistry()">重载缓存</button>
+</div>
+
+<table>
+    <thead><tr><th>ID</th><th>命令名</th><th>类型</th><th>内容摘要</th><th>状态</th><th>操作</th></tr></thead>
+    <tbody id="list"></tbody>
+</table>
+
+<!-- Modal -->
+<div class="modal-overlay" id="overlay">
+    <div class="modal">
+        <h2 id="modalTitle">新增指令</h2>
+        <input type="hidden" id="editId">
+        <div class="form-group"><label>命令名 (不带/)</label><input id="fName" placeholder="price"></div>
+        <div class="form-group"><label>显示名</label><input id="fDisplayName" placeholder="查看报价"></div>
+        <div class="form-group"><label>描述</label><input id="fDescription" placeholder="显示在 /help 的说明"></div>
+        <div class="form-group"><label>回复类型</label>
+            <select id="fReplyType" onchange="toggleFields()">
+                <option value="text">文本</option>
+                <option value="photo">图片</option>
+                <option value="buttons">按钮</option>
+            </select>
+        </div>
+        <div class="form-group" id="groupContent"><label>回复内容 (文本/图片URL)</label><textarea id="fContent"></textarea></div>
+        <div class="form-group" id="groupMarkup" style="display:none"><label>按钮 JSON</label><textarea id="fMarkup" placeholder='[[{"text":"确认","callbackData":"ok"}]]'></textarea></div>
+        <div class="form-group"><label>状态</label>
+            <select id="fStatus"><option value="1">启用</option><option value="0">禁用</option></select>
+        </div>
+        <div class="modal-actions">
+            <button class="btn-info" onclick="closeModal()">取消</button>
+            <button class="btn-primary" onclick="save()">保存</button>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = '/api/commands';
+
+async function fetchList() {
+    const res = await fetch(API + '?page=1&size=100');
+    const data = await res.json();
+    const tbody = document.getElementById('list');
+    tbody.innerHTML = (data.records || []).map(r => `<tr>
+        <td>${r.id}</td>
+        <td>/${r.name}</td>
+        <td>${r.replyType}</td>
+        <td>${(r.replyContent||'').substring(0,40)}</td>
+        <td class="${r.status===1?'status-on':'status-off'}">${r.status===1?'启用':'禁用'}</td>
+        <td>
+            <button class="btn-primary" onclick="openEdit(${r.id})" style="font-size:12px;padding:4px 8px;">编辑</button>
+            <button class="btn-warning" onclick="toggle(${r.id},${r.status===1?0:1})" style="font-size:12px;padding:4px 8px;">${r.status===1?'禁用':'启用'}</button>
+            <button class="btn-danger" onclick="del(${r.id})" style="font-size:12px;padding:4px 8px;">删除</button>
+        </td>
+    </tr>`).join('');
+}
+
+function toggleFields() {
+    const t = document.getElementById('fReplyType').value;
+    document.getElementById('groupMarkup').style.display = t === 'buttons' ? '' : 'none';
+    document.getElementById('groupContent').style.display = '';
+}
+
+function openCreate() {
+    document.getElementById('modalTitle').textContent = '新增指令';
+    document.getElementById('editId').value = '';
+    document.getElementById('fName').value = '';
+    document.getElementById('fDisplayName').value = '';
+    document.getElementById('fDescription').value = '';
+    document.getElementById('fReplyType').value = 'text';
+    document.getElementById('fContent').value = '';
+    document.getElementById('fMarkup').value = '';
+    document.getElementById('fStatus').value = '1';
+    toggleFields();
+    document.getElementById('overlay').classList.add('active');
+}
+
+let allCommands = [];
+async function openEdit(id) {
+    const res = await fetch(API + '?page=1&size=999');
+    const data = await res.json();
+    const cmd = (data.records||[]).find(c => c.id === id);
+    if (!cmd) return;
+    document.getElementById('modalTitle').textContent = '编辑指令';
+    document.getElementById('editId').value = cmd.id;
+    document.getElementById('fName').value = cmd.name;
+    document.getElementById('fDisplayName').value = cmd.displayName || '';
+    document.getElementById('fDescription').value = cmd.description || '';
+    document.getElementById('fReplyType').value = cmd.replyType;
+    document.getElementById('fContent').value = cmd.replyContent || '';
+    document.getElementById('fMarkup').value = cmd.replyMarkup || '';
+    document.getElementById('fStatus').value = cmd.status;
+    toggleFields();
+    document.getElementById('overlay').classList.add('active');
+}
+
+function closeModal() { document.getElementById('overlay').classList.remove('active'); }
+
+async function save() {
+    const id = document.getElementById('editId').value;
+    const body = {
+        name: document.getElementById('fName').value.trim(),
+        displayName: document.getElementById('fDisplayName').value.trim(),
+        description: document.getElementById('fDescription').value.trim(),
+        replyType: document.getElementById('fReplyType').value,
+        replyContent: document.getElementById('fContent').value,
+        replyMarkup: document.getElementById('fMarkup').value.trim() || null,
+        status: parseInt(document.getElementById('fStatus').value)
+    };
+    let res;
+    if (id) {
+        res = await fetch(`${API}/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    } else {
+        res = await fetch(API, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    }
+    if (res.ok) { showToast('保存成功', 'success'); closeModal(); fetchList(); }
+    else { showToast('保存失败: ' + res.status, 'error'); }
+}
+
+async function toggle(id, status) {
+    await fetch(`${API}/${id}/status`, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({status}) });
+    fetchList();
+}
+
+async function del(id) {
+    if (!confirm('确定删除？')) return;
+    await fetch(`${API}/${id}`, { method: 'DELETE' });
+    fetchList();
+}
+
+async function reloadRegistry() {
+    const res = await fetch(`${API}/reload`, { method: 'POST' });
+    if (res.ok) showToast('缓存已重载', 'success');
+    else showToast('重载失败', 'error');
+}
+
+function showToast(msg, type) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.className = 'toast show ' + type;
+    setTimeout(() => t.className = 'toast', 2500);
+}
+
+fetchList();
+</script>
+</body>
+</html>
