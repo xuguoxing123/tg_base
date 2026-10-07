@@ -3,10 +3,12 @@ package com.example.telegram.bot;
 import com.example.telegram.callback.CallbackQueryHandler;
 import com.example.telegram.command.BotCommandHandler;
 import com.example.telegram.command.CommandContext;
+import com.example.telegram.command.CommandRegistry;
 import com.example.telegram.config.TelegramBotProperties;
 import com.example.telegram.service.TelegramApiService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.DefaultBotOptions;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
@@ -16,11 +18,13 @@ import org.telegram.telegrambots.meta.api.objects.Update;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
- * 机器人入口：只负责 Update 的解析与分发，不含任何业务逻辑。
- * 业务分别由 BotCommandHandler / CallbackQueryHandler 实现类承担，
- * 新增命令或按钮只需新增一个 Spring Bean，无需改动本类。
+ * 机器人入口：解析 Update 并按 chatId 哈希分片到工作线程池，
+ * 命令查找委托给 CommandRegistry（支持内置 + DB 动态命令），
+ * 回调处理器仍使用静态 Map（按钮逻辑一般不需要运营动态改）。
  */
 @Component
 public class TelegramBot extends TelegramLongPollingBot {
@@ -31,37 +35,44 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     private final TelegramBotProperties properties;
     private final TelegramApiService apiService;
-    private final Map<String, BotCommandHandler> commandHandlers = new HashMap<>();
+    private final CommandRegistry registry;
     private final Map<String, CallbackQueryHandler> callbackHandlers = new HashMap<>();
-    private final BotCommandHandler fallbackCommandHandler;
+
+    /** 按 chatId 哈希分片的单线程工作池组，保证同一会话消息有序 */
+    private final ExecutorService[] workers;
 
     public TelegramBot(DefaultBotOptions botOptions,
                        TelegramBotProperties properties,
                        TelegramApiService apiService,
-                       List<BotCommandHandler> handlers,
-                       List<CallbackQueryHandler> callbackHandlerList) {
+                       CommandRegistry registry,
+                       List<CallbackQueryHandler> callbackHandlerList,
+                       @Value("${telegram.worker-pool-size:4}") int poolSize) {
         super(botOptions);
         this.properties = properties;
         this.apiService = apiService;
-
-        BotCommandHandler fallback = null;
-        for (BotCommandHandler handler : handlers) {
-            if (handler.name().isEmpty()) {
-                fallback = handler;
-            } else {
-                commandHandlers.put(handler.name(), handler);
-            }
-        }
-        this.fallbackCommandHandler = fallback;
+        this.registry = registry;
 
         for (CallbackQueryHandler handler : callbackHandlerList) {
             callbackHandlers.put(handler.data(), handler);
+        }
+
+        // 初始化工作线程池
+        this.workers = new ExecutorService[poolSize];
+        for (int i = 0; i < poolSize; i++) {
+            final int slot = i;
+            workers[i] = Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "tg-worker-" + slot);
+                t.setDaemon(true);
+                return t;
+            });
         }
 
         if (properties.token() == null || properties.token().isBlank()) {
             throw new IllegalStateException(
                     "telegram.bot.token 未配置，请设置环境变量 TELEGRAM_BOT_TOKEN（在 @BotFather 获取）");
         }
+        log.info("TelegramBot 初始化完成: bot={}, 命令注册表={} 条, 回调处理器={} 个, 工作线程={} 个",
+                properties.username(), registry.size(), callbackHandlers.size(), poolSize);
     }
 
     @Override
@@ -76,6 +87,13 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     @Override
     public void onUpdateReceived(Update update) {
+        // 提取 chatId 用于分片路由（同一用户/群的消息始终进同一线程 → 有序）
+        long chatId = extractChatId(update);
+        int slot = (int) (Math.abs(chatId) % workers.length);
+        workers[slot].submit(() -> processUpdate(update));
+    }
+
+    private void processUpdate(Update update) {
         // 长轮询框架不允许异常外抛，统一在此兜底记录
         try {
             if (update.hasMessage() && update.getMessage().hasText()) {
@@ -91,18 +109,16 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     private void dispatchMessage(Update update) {
         long chatId = update.getMessage().getChatId();
-        // User 对象携带发送者信息；单聊场景下 chatId 与 userId 数值相同但语义不同
         long userId = update.getMessage().getFrom() != null ? update.getMessage().getFrom().getId() : 0L;
         String text = update.getMessage().getText();
 
         BotCommandHandler handler = null;
         if (text.startsWith("/")) {
-            // 去掉前导斜杠，并处理 "/start@MyBot" 提及形式与命令后参数
             String command = text.substring(1).split("[@\\s]", 2)[0];
-            handler = commandHandlers.get(command);
+            handler = registry.lookup(command).orElse(null);
         }
         if (handler == null) {
-            handler = fallbackCommandHandler;
+            handler = registry.getFallback();
         }
         if (handler != null) {
             CommandContext context = new CommandContext(chatId, userId, text);
@@ -119,6 +135,9 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     private void dispatchCallback(CallbackQuery callbackQuery) {
+        log.info("收到按钮回调: userId={}, callbackData={}",
+                callbackQuery.getFrom() != null ? callbackQuery.getFrom().getId() : 0L,
+                callbackQuery.getData());
         CallbackQueryHandler handler = callbackHandlers.get(callbackQuery.getData());
         if (handler != null) {
             String handlerName = handler.getClass().getSimpleName();
@@ -136,6 +155,12 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
         // 必须应答回调，否则按钮会一直处于加载状态
         apiService.answerCallback(callbackQuery.getId(), CALLBACK_ANSWER_TEXT);
+    }
+
+    private static long extractChatId(Update update) {
+        if (update.hasMessage()) return update.getMessage().getChatId();
+        if (update.hasCallbackQuery()) return update.getCallbackQuery().getMessage().getChatId();
+        return 0L;
     }
 
     private static long elapsedMs(long startNanos) {
