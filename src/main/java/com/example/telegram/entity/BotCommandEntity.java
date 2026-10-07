@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.annotation.*;
 
 import java.time.LocalDateTime;
 
-@TableName("bot_command")
+@TableName("cs_bot_command")
 public class BotCommandEntity {
 
     @TableId(type = IdType.AUTO)
