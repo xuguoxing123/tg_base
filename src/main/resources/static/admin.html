@@ -78,7 +78,7 @@ tr:hover { background: #f0f7ff; }
 <div class="toast" id="toast"></div>
 
 <script>
-const API = '/api/commands';
+const API = 'http://localhost:8080/api/commands';
 
 async function fetchList() {
     const res = await fetch(API + '?page=1&size=100');
