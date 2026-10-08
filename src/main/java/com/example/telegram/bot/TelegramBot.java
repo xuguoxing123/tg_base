@@ -19,7 +19,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 机器人入口：解析 Update 并按 chatId 哈希分片到工作线程池，
@@ -36,6 +39,7 @@ public class TelegramBot extends TelegramLongPollingBot {
     private final TelegramBotProperties properties;
     private final TelegramApiService apiService;
     private final CommandRegistry registry;
+    private final RateLimiter rateLimiter;
     private final Map<String, CallbackQueryHandler> callbackHandlers = new HashMap<>();
 
     /** 按 chatId 哈希分片的单线程工作池组，保证同一会话消息有序 */
@@ -45,26 +49,33 @@ public class TelegramBot extends TelegramLongPollingBot {
                        TelegramBotProperties properties,
                        TelegramApiService apiService,
                        CommandRegistry registry,
+                       RateLimiter rateLimiter,
                        List<CallbackQueryHandler> callbackHandlerList,
-                       @Value("${telegram.worker-pool-size:4}") int poolSize) {
+                       @Value("${telegram.worker-pool-size:4}") int poolSize,
+                       @Value("${telegram.worker-queue-capacity:200}") int queueCapacity) {
         super(botOptions);
         this.properties = properties;
         this.apiService = apiService;
         this.registry = registry;
+        this.rateLimiter = rateLimiter;
 
         for (CallbackQueryHandler handler : callbackHandlerList) {
             callbackHandlers.put(handler.data(), handler);
         }
 
-        // 初始化工作线程池
+        // 初始化工作线程池：有界队列 + AbortPolicy，防止刷屏时任务无限堆积导致 OOM
         this.workers = new ExecutorService[poolSize];
         for (int i = 0; i < poolSize; i++) {
             final int slot = i;
-            workers[i] = Executors.newSingleThreadExecutor(r -> {
-                Thread t = new Thread(r, "tg-worker-" + slot);
-                t.setDaemon(true);
-                return t;
-            });
+            workers[i] = new ThreadPoolExecutor(
+                    1, 1, 0L, TimeUnit.MILLISECONDS,
+                    new LinkedBlockingQueue<>(queueCapacity),
+                    r -> {
+                        Thread t = new Thread(r, "tg-worker-" + slot);
+                        t.setDaemon(true);
+                        return t;
+                    },
+                    new ThreadPoolExecutor.AbortPolicy());
         }
 
         if (properties.token() == null || properties.token().isBlank()) {
@@ -87,10 +98,32 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     @Override
     public void onUpdateReceived(Update update) {
-        // 提取 chatId 用于分片路由（同一用户/群的消息始终进同一线程 → 有序）
+        long userId = extractUserId(update);
+        // 1) 每用户限流：狂刷机器人的用户直接丢弃，保护服务器与 Telegram API 配额
+        if (!rateLimiter.tryAcquire(userId)) {
+            log.warn("用户 {} 触发限流，丢弃消息", userId);
+            return;
+        }
+
+        // 2) 按 chatId 哈希分片路由（同一用户/群的消息始终进同一线程 → 有序）
         long chatId = extractChatId(update);
         int slot = (int) (Math.abs(chatId) % workers.length);
-        workers[slot].submit(() -> processUpdate(update));
+        try {
+            workers[slot].submit(() -> processUpdate(update));
+        } catch (RejectedExecutionException e) {
+            // 3) 有界队列已满：说明该分片积压严重，主动丢弃新任务避免内存继续膨胀
+            log.warn("工作线程池 slot={} 队列已满，丢弃来自 chatId={} 的消息", slot, chatId);
+        }
+    }
+
+    private static long extractUserId(Update update) {
+        if (update.hasMessage() && update.getMessage().getFrom() != null) {
+            return update.getMessage().getFrom().getId();
+        }
+        if (update.hasCallbackQuery() && update.getCallbackQuery().getFrom() != null) {
+            return update.getCallbackQuery().getFrom().getId();
+        }
+        return 0L;
     }
 
     private void processUpdate(Update update) {
