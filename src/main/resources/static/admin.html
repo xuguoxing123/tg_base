@@ -33,11 +33,20 @@ tr:hover { background: #f0f7ff; }
 .toast.show { display: block; }
 .toast.success { background: #67c23a; }
 .toast.error { background: #f56c6c; }
+.tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 2px solid #e4e7ed; }
+.tab-btn { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 15px; color: #606266; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+.tab-btn.active { color: #409eff; border-bottom-color: #409eff; font-weight: 600; }
 </style>
 </head>
 <body>
-<h1>Bot 指令管理后台</h1>
+<h1>Bot 管理后台</h1>
 
+<div class="tabs">
+    <button class="tab-btn active" id="tabCmd" onclick="switchTab('cmd')">指令管理</button>
+    <button class="tab-btn" id="tabTask" onclick="switchTab('task')">定时任务</button>
+</div>
+
+<div id="cmdView">
 <div class="toolbar">
     <button class="btn-primary" onclick="openCreate()">+ 新增指令</button>
     <button class="btn-success" onclick="reloadRegistry()">重载缓存</button>
@@ -47,6 +56,18 @@ tr:hover { background: #f0f7ff; }
     <thead><tr><th>ID</th><th>命令名</th><th>类型</th><th>内容摘要</th><th>状态</th><th>操作</th></tr></thead>
     <tbody id="list"></tbody>
 </table>
+</div>
+
+<div id="taskView" style="display:none">
+<div class="toolbar">
+    <button class="btn-primary" onclick="openTaskCreate()">+ 新增定时任务</button>
+</div>
+
+<table>
+    <thead><tr><th>ID</th><th>名称</th><th>目标chatId</th><th>Cron</th><th>类型</th><th>内容摘要</th><th>下次执行</th><th>状态</th><th>操作</th></tr></thead>
+    <tbody id="taskList"></tbody>
+</table>
+</div>
 
 <!-- Modal -->
 <div class="modal-overlay" id="overlay">
@@ -85,10 +106,62 @@ tr:hover { background: #f0f7ff; }
     </div>
 </div>
 
+<!-- Task Modal -->
+<div class="modal-overlay" id="taskOverlay">
+    <div class="modal">
+        <h2 id="taskModalTitle">新增定时任务</h2>
+        <input type="hidden" id="taskEditId">
+        <div class="form-group"><label>任务名称</label><input id="tName" placeholder="morning_news_broadcast"></div>
+        <div class="form-group"><label>描述</label><input id="tDescription" placeholder="每天 9 点推送当日热点新闻"></div>
+        <div class="form-group"><label>目标 chatId（群/用户 ID，定时推送至此）</label><input id="tChatId" placeholder="-1001234567890"></div>
+        <div class="form-group"><label>Cron 表达式（6位：秒 分 时 日 月 周）</label><input id="tCron" placeholder="0 0 9 * * ? （每天9点）"></div>
+        <div class="form-group"><label>回复类型</label>
+            <select id="tReplyType" onchange="toggleTaskFields()">
+                <option value="text">文本</option>
+                <option value="photo">图片</option>
+                <option value="buttons">内联按钮</option>
+                <option value="keyboard">自定义键盘</option>
+            </select>
+        </div>
+        <div class="form-group" id="tGroupContent"><label>回复内容 (文本/图片URL)</label><textarea id="tContent"></textarea></div>
+        <div class="form-group" id="tGroupMarkup" style="display:none"><label>按钮/键盘 JSON</label><textarea id="tMarkup"></textarea></div>
+        <div class="form-group"><label>格式化模式</label>
+            <select id="tParseMode">
+                <option value="">纯文本（默认）</option>
+                <option value="MarkdownV2">MarkdownV2</option>
+                <option value="HTML">HTML</option>
+            </select>
+        </div>
+        <div class="form-group"><label>状态</label>
+            <select id="tStatus"><option value="1">启用</option><option value="0">禁用</option></select>
+        </div>
+        <div class="modal-actions">
+            <button class="btn-info" onclick="closeTaskModal()">取消</button>
+            <button class="btn-primary" onclick="saveTask()">保存</button>
+        </div>
+    </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
 const API = 'http://localhost:8080/api/commands';
+const TASK_API = 'http://localhost:8080/api/tasks';
+
+function switchTab(which) {
+    const cmdView = document.getElementById('cmdView');
+    const taskView = document.getElementById('taskView');
+    const tabCmd = document.getElementById('tabCmd');
+    const tabTask = document.getElementById('tabTask');
+    if (which === 'cmd') {
+        cmdView.style.display = ''; taskView.style.display = 'none';
+        tabCmd.classList.add('active'); tabTask.classList.remove('active');
+    } else {
+        cmdView.style.display = 'none'; taskView.style.display = '';
+        tabCmd.classList.remove('active'); tabTask.classList.add('active');
+        fetchTaskList();
+    }
+}
 
 async function fetchList() {
     const res = await fetch(API + '?page=1&size=100');
@@ -207,6 +280,111 @@ function showToast(msg, type) {
     const t = document.getElementById('toast');
     t.textContent = msg; t.className = 'toast show ' + type;
     setTimeout(() => t.className = 'toast', 2500);
+}
+
+// ===== 定时任务管理 =====
+async function fetchTaskList() {
+    const res = await fetch(TASK_API + '?page=1&size=100');
+    const data = await res.json();
+    const tbody = document.getElementById('taskList');
+    tbody.innerHTML = (data.records || []).map(r => `<tr>
+        <td>${r.id}</td>
+        <td>${r.name}</td>
+        <td>${r.chatId}</td>
+        <td><code>${r.cronExpression}</code></td>
+        <td>${r.replyType}</td>
+        <td>${(r.replyContent||'').substring(0,30)}</td>
+        <td>${r.nextExecTime ? String(r.nextExecTime).replace('T',' ').substring(0,19) : '-'}</td>
+        <td class="${r.status===1?'status-on':'status-off'}">${r.status===1?'启用':'禁用'}</td>
+        <td>
+            <button class="btn-primary" onclick="openTaskEdit(${r.id})" style="font-size:12px;padding:4px 8px;">编辑</button>
+            <button class="btn-warning" onclick="toggleTask(${r.id},${r.status===1?0:1})" style="font-size:12px;padding:4px 8px;">${r.status===1?'禁用':'启用'}</button>
+            <button class="btn-danger" onclick="delTask(${r.id})" style="font-size:12px;padding:4px 8px;">删除</button>
+        </td>
+    </tr>`).join('');
+}
+
+function toggleTaskFields() {
+    const t = document.getElementById('tReplyType').value;
+    const show = t === 'buttons' || t === 'keyboard';
+    document.getElementById('tGroupMarkup').style.display = show ? '' : 'none';
+    const markupEl = document.getElementById('tMarkup');
+    markupEl.placeholder = t === 'keyboard'
+        ? '[["北京","上海"],["广州","深圳"]]'
+        : '[[{"text":"确认","callbackData":"ok"}]]';
+}
+
+function openTaskCreate() {
+    document.getElementById('taskModalTitle').textContent = '新增定时任务';
+    document.getElementById('taskEditId').value = '';
+    document.getElementById('tName').value = '';
+    document.getElementById('tDescription').value = '';
+    document.getElementById('tChatId').value = '';
+    document.getElementById('tCron').value = '';
+    document.getElementById('tReplyType').value = 'text';
+    document.getElementById('tContent').value = '';
+    document.getElementById('tMarkup').value = '';
+    document.getElementById('tParseMode').value = '';
+    document.getElementById('tStatus').value = '1';
+    toggleTaskFields();
+    document.getElementById('taskOverlay').classList.add('active');
+}
+
+async function openTaskEdit(id) {
+    const res = await fetch(TASK_API + '?page=1&size=999');
+    const data = await res.json();
+    const task = (data.records||[]).find(t => t.id === id);
+    if (!task) return;
+    document.getElementById('taskModalTitle').textContent = '编辑定时任务';
+    document.getElementById('taskEditId').value = task.id;
+    document.getElementById('tName').value = task.name;
+    document.getElementById('tDescription').value = task.description || '';
+    document.getElementById('tChatId').value = task.chatId;
+    document.getElementById('tCron').value = task.cronExpression;
+    document.getElementById('tReplyType').value = task.replyType;
+    document.getElementById('tContent').value = task.replyContent || '';
+    document.getElementById('tMarkup').value = task.replyMarkup || '';
+    document.getElementById('tParseMode').value = task.parseMode || '';
+    document.getElementById('tStatus').value = task.status;
+    toggleTaskFields();
+    document.getElementById('taskOverlay').classList.add('active');
+}
+
+function closeTaskModal() { document.getElementById('taskOverlay').classList.remove('active'); }
+
+async function saveTask() {
+    const id = document.getElementById('taskEditId').value;
+    const body = {
+        name: document.getElementById('tName').value.trim(),
+        description: document.getElementById('tDescription').value.trim(),
+        chatId: parseInt(document.getElementById('tChatId').value),
+        cronExpression: document.getElementById('tCron').value.trim(),
+        replyType: document.getElementById('tReplyType').value,
+        replyContent: document.getElementById('tContent').value,
+        replyMarkup: document.getElementById('tMarkup').value.trim() || null,
+        parseMode: document.getElementById('tParseMode').value || null,
+        status: parseInt(document.getElementById('tStatus').value)
+    };
+    if (!body.name || !body.chatId || !body.cronExpression) { showToast('名称/chatId/Cron 必填', 'error'); return; }
+    let res;
+    if (id) {
+        res = await fetch(`${TASK_API}/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    } else {
+        res = await fetch(TASK_API, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    }
+    if (res.ok) { showToast('保存成功', 'success'); closeTaskModal(); fetchTaskList(); }
+    else { const txt = await res.text(); showToast('保存失败: ' + (res.status) + (txt?(' '+txt):''), 'error'); }
+}
+
+async function toggleTask(id, status) {
+    await fetch(`${TASK_API}/${id}/status`, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({status}) });
+    fetchTaskList();
+}
+
+async function delTask(id) {
+    if (!confirm('确定删除该定时任务？')) return;
+    await fetch(`${TASK_API}/${id}`, { method: 'DELETE' });
+    fetchTaskList();
 }
 
 fetchList();

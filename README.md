@@ -12,6 +12,7 @@
 - 🔑 关键词自动回复（非命令文本包含触发词时自动响应）
 - 🎉 入群欢迎语（监听新成员加入事件，支持 `{user}` / `{chat}` 占位符）
 - 🤖 AI 对话兜底 — 无法匹配时自动调用 LLM/配置文本回复（接口已预留，可随时接入）
+- ⏰ 定时任务推送 — 运营配置“目标群 + cron + 内容”，调度器按周期自动发送
 - 🛡️ 滑动窗口限流防刷，有界队列防止 OOM
 - 🗄️ MySQL 持久化 + MyBatis-Plus 逻辑删除
 - 🖥️ 自带管理后台页面（admin.html）
@@ -72,6 +73,7 @@ telegram/
 │   ├── TelegramApplication.java          # 启动类
 │   ├── bot/                              # 机器人入口 & 限流
 │   │   ├── TelegramBot.java
+│   │   ├── BroadcastTaskRunner.java      # 定时广播任务调度器
 │   │   └── RateLimiter.java
 │   ├── callback/                         # 按钮回调处理器
 │   │   ├── CallbackQueryHandler.java
@@ -217,6 +219,27 @@ welcomeText = "欢迎 {user} 加入 {chat}！请先看 /help"
 
 > 同名命令中 DB 动态命令会覆盖内置处理器，无需改代码即可替换 `/help` 等行为。
 
+## Scheduled Tasks（定时任务）
+
+运营可在后台「定时任务」Tab 配置“目标群 + cron 表达式 + 回复内容”，调度器 `BroadcastTaskRunner` 每分钟扫描一次，命中则自动推送到指定 chat。
+
+**工作机制：**
+
+- 采用「数据库 + 分钟轮询」而非动态注册 `@Scheduled`，好处是改配置即时生效、无需重启（与 `CommandRegistry` 轮询刷新思路一致）
+- 使用 Spring `CronExpression` 解析 6 位表达式（秒 分 时 日 月 周）；创建/更新时校验合法性
+- 命中判断：以 `[now-1min, now]` 为窗口，若区间内存在触发点则执行
+- 发送逻辑复用 replyType 体系（text/photo/buttons/keyboard），与动态命令一致
+
+**Cron 示例：**
+
+| 表达式 | 含义 |
+|--------|------|
+| `0 0 9 * * ?` | 每天 09:00 |
+| `0 */30 * * * ?` | 每 30 分钟 |
+| `0 0 10 * * 1` | 每周一 10:00 |
+
+> 目标群 `chat_id` 可从 Telegram 消息日志获取（群聊 ID 通常为负数）。需确保 Bot 已被拉入目标群且有发言权限。
+
 ## Built-in Commands
 
 | Command | Handler | Description |
@@ -240,6 +263,16 @@ welcomeText = "欢迎 {user} 加入 {chat}！请先看 /help"
 | PATCH | `/api/commands/{id}/status` | 启用/禁用 |
 | DELETE | `/api/commands/{id}` | 删除（逻辑删除） |
 | POST | `/api/commands/reload` | 手动刷新注册表 |
+
+定时任务 API，基础路径：`/api/tasks`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/tasks?page=1&size=50` | 分页查询 |
+| POST | `/api/tasks` | 创建定时任务 |
+| PUT | `/api/tasks/{id}` | 更新任务 |
+| PATCH | `/api/tasks/{id}/status` | 启用/禁用 |
+| DELETE | `/api/tasks/{id}` | 删除（逻辑删除） |
 
 ## Configuration
 
@@ -268,6 +301,9 @@ server.port=8080                         # Web 端口
 telegram.ai.fallback.enabled=true        # 启用开关
 telegram.ai.fallback.reply-text=抱歉…    # 默认回复文本（后续接入 LLM 后可留空）
 telegram.ai.fallback.parse-mode=         # 回复格式化模式（空/MarkdownV2/HTML）
+
+# ===== Scheduled Tasks =====
+telegram.scheduled-task.scan-cron=0 * * * * *   # 调度器扫描周期（默认每分钟）
 ```
 
 ## Logging
@@ -335,6 +371,21 @@ public class QwenChatCompletionService implements ChatCompletionService {
 | `welcome_text` | TEXT | 入群欢迎语模板 |
 | `enabled` | TINYINT | 1=启用 0=禁用 |
 | `deleted` | TINYINT | 逻辑删除标记 |
+
+广播任务表 `cs_bot_broadcast_task`：
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `name` | VARCHAR(64) | 任务唯一标识 |
+| `chat_id` | BIGINT | 目标会话/群 ID（推送至此） |
+| `cron_expression` | VARCHAR(64) | Spring cron 表达式（6 位） |
+| `reply_type` | VARCHAR(16) | `text` / `photo` / `buttons` / `keyboard` |
+| `reply_content` | TEXT | 回复内容或图片 URL |
+| `reply_markup` | TEXT | 按钮/键盘 JSON 配置 |
+| `parse_mode` | VARCHAR(16) | `MarkdownV2` / `HTML` / 空 |
+| `status` | TINYINT | 1=启用 0=禁用 |
+| `last_exec_time` | DATETIME | 上次执行时间 |
+| `next_exec_time` | DATETIME | 下次预计执行时间 |
 
 ## License
 
