@@ -37,7 +37,7 @@ public class BotCommandController {
     public ResponseEntity<Void> update(@PathVariable Long id, @RequestBody CommandUpdateRequest req) {
         // 确保 path id 和 body id 一致
         service.update(new CommandUpdateRequest(id, req.name(), req.displayName(), req.description(),
-                req.replyType(), req.replyContent(), req.replyMarkup(), req.status()));
+                req.replyType(), req.replyContent(), req.replyMarkup(), req.parseMode(), req.status()));
         return ResponseEntity.ok().build();
     }
 

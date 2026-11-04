@@ -8,6 +8,7 @@ public record CommandUpdateRequest(
         String replyType,
         String replyContent,
         String replyMarkup,
+        String parseMode,
         Integer status
 ) {
 }

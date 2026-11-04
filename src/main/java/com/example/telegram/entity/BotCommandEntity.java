@@ -16,6 +16,7 @@ public class BotCommandEntity {
     private String replyType;
     private String replyContent;
     private String replyMarkup;   // JSON string stored in DB
+    private String parseMode;     // "MarkdownV2" / "HTML" / null (plain text)
     private Integer status;        // 0=disabled, 1=enabled
     private String visibleUserIds; // JSON array or null
     private Integer sortOrder;
@@ -51,6 +52,9 @@ public class BotCommandEntity {
 
     public String getReplyMarkup() { return replyMarkup; }
     public void setReplyMarkup(String replyMarkup) { this.replyMarkup = replyMarkup; }
+
+    public String getParseMode() { return parseMode; }
+    public void setParseMode(String parseMode) { this.parseMode = parseMode; }
 
     public Integer getStatus() { return status; }
     public void setStatus(Integer status) { this.status = status; }

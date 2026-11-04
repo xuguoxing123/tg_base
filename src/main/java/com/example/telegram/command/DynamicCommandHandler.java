@@ -36,10 +36,11 @@ public class DynamicCommandHandler implements BotCommandHandler {
 
     @Override
     public boolean handle(CommandContext context) {
+        String parseMode = definition.parseMode();
         return switch (definition.replyType()) {
-            case "text" -> apiService.sendText(context.chatId(), definition.replyContent()).isPresent();
+            case "text" -> apiService.sendText(context.chatId(), definition.replyContent(), parseMode).isPresent();
             case "photo" -> apiService.sendPhoto(context.chatId(), definition.replyContent(), definition.replyContent()).isPresent();
-            case "buttons" -> handleButtons(context);
+            case "buttons" -> handleButtons(context, parseMode);
             default -> {
                 log.warn("未知的 replyType: {}, command: {}", definition.replyType(), definition.name());
                 yield false;
@@ -47,10 +48,10 @@ public class DynamicCommandHandler implements BotCommandHandler {
         };
     }
 
-    private boolean handleButtons(CommandContext context) {
+    private boolean handleButtons(CommandContext context, String parseMode) {
         try {
             InlineKeyboardMarkup markup = parseMarkup(definition.replyMarkup());
-            return apiService.sendText(context.chatId(), definition.replyContent(), markup).isPresent();
+            return apiService.sendText(context.chatId(), definition.replyContent(), parseMode, markup).isPresent();
         } catch (Exception e) {
             log.error("解析按钮配置失败, command: {}", definition.name(), e);
             return false;

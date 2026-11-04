@@ -78,7 +78,8 @@ public class CommandRegistry {
                         e.getName(),
                         e.getReplyType(),
                         e.getReplyContent(),
-                        e.getReplyMarkup());
+                        e.getReplyMarkup(),
+                        e.getParseMode());
                 next.put(def.name(), new DynamicCommandHandler(apiService, def));
             }
 

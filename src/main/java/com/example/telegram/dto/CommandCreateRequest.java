@@ -7,6 +7,7 @@ public record CommandCreateRequest(
         String replyType,
         String replyContent,
         String replyMarkup,
+        String parseMode,
         Integer status
 ) {
 }

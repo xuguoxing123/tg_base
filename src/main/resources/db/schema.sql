@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS bot_command (
     reply_type      VARCHAR(16) NOT NULL DEFAULT 'text' COMMENT 'text/photo/buttons',
     reply_content   TEXT COMMENT '文本内容或图片URL',
     reply_markup    JSON COMMENT '按钮配置二维数组',
+    parse_mode      VARCHAR(16) DEFAULT NULL COMMENT '文本格式化: MarkdownV2/HTML/null(纯文本)',
     status          TINYINT NOT NULL DEFAULT 1 COMMENT '0禁用 1启用',
     visible_user_ids JSON COMMENT '可见用户ID白名单,null=全部',
     sort_order      INT DEFAULT 0,

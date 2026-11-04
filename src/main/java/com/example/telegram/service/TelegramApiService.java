@@ -31,16 +31,35 @@ public class TelegramApiService extends DefaultAbsSender {
     }
 
     public Optional<Message> sendText(long chatId, String text) {
+        return sendText(chatId, text, (String) null);
+    }
+
+    /**
+     * 发送文本消息，支持可选的 Markdown/HTML 格式化。
+     *
+     * @param parseMode null/空 = 纯文本；"MarkdownV2" 或 "HTML" = 格式化渲染
+     */
+    public Optional<Message> sendText(long chatId, String text, String parseMode) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId);
         message.setText(text);
+        if (parseMode != null && !parseMode.isBlank()) {
+            message.setParseMode(parseMode);
+        }
         return executeQuietly("sendMessage", () -> execute(message));
     }
 
     public Optional<Message> sendText(long chatId, String text, InlineKeyboardMarkup replyMarkup) {
+        return sendText(chatId, text, null, replyMarkup);
+    }
+
+    public Optional<Message> sendText(long chatId, String text, String parseMode, InlineKeyboardMarkup replyMarkup) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId);
         message.setText(text);
+        if (parseMode != null && !parseMode.isBlank()) {
+            message.setParseMode(parseMode);
+        }
         message.setReplyMarkup(replyMarkup);
         return executeQuietly("sendMessage", () -> execute(message));
     }

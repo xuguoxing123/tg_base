@@ -10,6 +10,7 @@ public record CommandVO(
         String replyType,
         String replyContent,
         String replyMarkup,
+        String parseMode,
         Integer status,
         Integer sortOrder,
         LocalDateTime gmtCreate,
