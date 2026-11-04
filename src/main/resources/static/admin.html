@@ -60,11 +60,12 @@ tr:hover { background: #f0f7ff; }
             <select id="fReplyType" onchange="toggleFields()">
                 <option value="text">文本</option>
                 <option value="photo">图片</option>
-                <option value="buttons">按钮</option>
+                <option value="buttons">内联按钮</option>
+                <option value="keyboard">自定义键盘</option>
             </select>
         </div>
         <div class="form-group" id="groupContent"><label>回复内容 (文本/图片URL)</label><textarea id="fContent"></textarea></div>
-        <div class="form-group" id="groupMarkup" style="display:none"><label>按钮 JSON</label><textarea id="fMarkup" placeholder='[[{"text":"确认","callbackData":"ok"}]]'></textarea></div>
+        <div class="form-group" id="groupMarkup" style="display:none"><label>按钮/键盘 JSON</label><textarea id="fMarkup"></textarea></div>
         <div class="form-group" id="groupParseMode"><label>格式化模式</label>
             <select id="fParseMode">
                 <option value="">纯文本（默认）</option>
@@ -107,7 +108,14 @@ async function fetchList() {
 
 function toggleFields() {
     const t = document.getElementById('fReplyType').value;
-    document.getElementById('groupMarkup').style.display = t === 'buttons' ? '' : 'none';
+    const show = t === 'buttons' || t === 'keyboard';
+    document.getElementById('groupMarkup').style.display = show ? '' : 'none';
+    const markupEl = document.getElementById('fMarkup');
+    if (t === 'keyboard') {
+        markupEl.placeholder = '[["北京","上海"],["广州","深圳"]]';
+    } else {
+        markupEl.placeholder = '[[{"text":"确认","callbackData":"ok"}]]';
+    }
     document.getElementById('groupContent').style.display = '';
 }
 

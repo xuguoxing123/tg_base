@@ -13,6 +13,7 @@ import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageTe
 import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 import java.util.Optional;
@@ -62,6 +63,21 @@ public class TelegramApiService extends DefaultAbsSender {
         }
         message.setReplyMarkup(replyMarkup);
         return executeQuietly("sendMessage", () -> execute(message));
+    }
+
+    /**
+     * 发送带自定义回复键盘（ReplyKeyboardMarkup）的文本消息。
+     * 用户点击键盘按钮后，按钮文字会作为普通消息发送给机器人。
+     */
+    public Optional<Message> sendTextWithKeyboard(long chatId, String text, String parseMode, ReplyKeyboardMarkup keyboard) {
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId);
+        message.setText(text);
+        if (parseMode != null && !parseMode.isBlank()) {
+            message.setParseMode(parseMode);
+        }
+        message.setReplyMarkup(keyboard);
+        return executeQuietly("sendReplyKeyboard", () -> execute(message));
     }
 
     public Optional<Message> sendPhoto(long chatId, String photoUrl, String caption) {

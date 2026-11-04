@@ -6,7 +6,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -41,6 +44,7 @@ public class DynamicCommandHandler implements BotCommandHandler {
             case "text" -> apiService.sendText(context.chatId(), definition.replyContent(), parseMode).isPresent();
             case "photo" -> apiService.sendPhoto(context.chatId(), definition.replyContent(), definition.replyContent()).isPresent();
             case "buttons" -> handleButtons(context, parseMode);
+            case "keyboard" -> handleKeyboard(context, parseMode);
             default -> {
                 log.warn("未知的 replyType: {}, command: {}", definition.replyType(), definition.name());
                 yield false;
@@ -56,6 +60,48 @@ public class DynamicCommandHandler implements BotCommandHandler {
             log.error("解析按钮配置失败, command: {}", definition.name(), e);
             return false;
         }
+    }
+
+    /**
+     * 处理 ReplyKeyboard 自定义键盘类型。
+     * 用户点击按钮后，按钮文字会作为普通消息发给机器人（可被 CommandRegistry 路由）。
+     *
+     * JSON 格式: [["北京","上海"],["广州","深圳"]]
+     */
+    private boolean handleKeyboard(CommandContext context, String parseMode) {
+        try {
+            ReplyKeyboardMarkup keyboard = parseReplyKeyboard(definition.replyMarkup());
+            return apiService.sendTextWithKeyboard(context.chatId(), definition.replyContent(), parseMode, keyboard).isPresent();
+        } catch (Exception e) {
+            log.error("解析键盘配置失败, command: {}", definition.name(), e);
+            return false;
+        }
+    }
+
+    /**
+     * 将 JSON 字符串解析为 ReplyKeyboard。
+     * 格式: [["按钮1","按钮2"],["按钮3","按钮4"]]
+     */
+    private ReplyKeyboardMarkup parseReplyKeyboard(String json) throws Exception {
+        if (json == null || json.isBlank()) {
+            throw new IllegalArgumentException("replyMarkup is empty for keyboard type");
+        }
+        List<List<String>> rows = MAPPER.readValue(json, new TypeReference<>() {});
+        List<KeyboardRow> keyboard = new ArrayList<>();
+        for (List<String> rowDef : rows) {
+            KeyboardRow row = new KeyboardRow();
+            for (String btnText : rowDef) {
+                KeyboardButton btn = new KeyboardButton();
+                btn.setText(btnText);
+                row.add(btn);
+            }
+            keyboard.add(row);
+        }
+        ReplyKeyboardMarkup rkm = new ReplyKeyboardMarkup();
+        rkm.setKeyboard(keyboard);
+        rkm.setResizeKeyboard(true);
+        rkm.setOneTimeKeyboard(false);
+        return rkm;
     }
 
     /**
