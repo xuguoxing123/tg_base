@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,6 +18,7 @@ import java.util.Optional;
 
 /**
  * 命令注册表：合并内置处理器与 DB 动态命令，volatile 快照保证线程安全。
+ * 同时维护关键词触发规则和入群欢迎规则。
  * 定时从 DB 刷新 + Admin API 可主动触发 reload。
  */
 @Component
@@ -31,6 +33,8 @@ public class CommandRegistry {
     /** volatile 快照：读侧无锁，写侧整体替换 */
     private volatile Map<String, BotCommandHandler> snapshot = Map.of();
     private volatile BotCommandHandler fallback;
+    private volatile List<KeywordRule> keywordRules = List.of();
+    private volatile List<WelcomeRule> welcomeRules = List.of();
 
     public CommandRegistry(List<BotCommandHandler> builtInHandlers,
                            TelegramApiService apiService,
@@ -55,10 +59,13 @@ public class CommandRegistry {
 
     /**
      * 重建命令快照：先放内置（排除空 name 的 fallback），再用 DB 动态命令覆盖同名项。
+     * 同时构建关键词触发列表和入群欢迎列表。
      */
     public synchronized void refresh() {
         try {
             Map<String, BotCommandHandler> next = new HashMap<>();
+            List<KeywordRule> nextKeywords = new ArrayList<>();
+            List<WelcomeRule> nextWelcomes = new ArrayList<>();
 
             // 1. 内置处理器
             for (BotCommandHandler h : builtInHandlers) {
@@ -81,10 +88,37 @@ public class CommandRegistry {
                         e.getReplyMarkup(),
                         e.getParseMode());
                 next.put(def.name(), new DynamicCommandHandler(apiService, def));
+
+                // 3. 关键词触发规则
+                if (e.getTriggerKeywords() != null && !e.getTriggerKeywords().isBlank()) {
+                    String[] kws = e.getTriggerKeywords().split(",");
+                    for (String kw : kws) {
+                        String trimmed = kw.trim().toLowerCase();
+                        if (!trimmed.isEmpty()) {
+                            nextKeywords.add(new KeywordRule(
+                                    trimmed,
+                                    e.getReplyType(),
+                                    e.getReplyContent(),
+                                    e.getReplyMarkup(),
+                                    e.getParseMode()));
+                        }
+                    }
+                }
+
+                // 4. 入群欢迎规则
+                if (e.getWelcomeText() != null && !e.getWelcomeText().isBlank()) {
+                    nextWelcomes.add(new WelcomeRule(
+                            e.getName(),
+                            e.getWelcomeText(),
+                            e.getParseMode()));
+                }
             }
 
             this.snapshot = Map.copyOf(next);
-            log.debug("CommandRegistry 刷新完成: {} 条命令 {}", snapshot.size(), snapshot.keySet());
+            this.keywordRules = List.copyOf(nextKeywords);
+            this.welcomeRules = List.copyOf(nextWelcomes);
+            log.debug("CommandRegistry 刷新完成: {} 条命令, {} 条关键词规则, {} 条欢迎规则",
+                    snapshot.size(), keywordRules.size(), welcomeRules.size());
         } catch (Exception e) {
             log.error("CommandRegistry 刷新失败，保持旧快照不变", e);
         }
@@ -92,6 +126,30 @@ public class CommandRegistry {
 
     public Optional<BotCommandHandler> lookup(String name) {
         return Optional.ofNullable(snapshot.get(name));
+    }
+
+    /**
+     * 查找消息文本中匹配的第一个关键词规则。
+     *
+     * @param text 用户发送的原始文本
+     * @return 匹配的关键词规则，未匹配则 empty
+     */
+    public Optional<KeywordRule> lookupKeyword(String text) {
+        if (text == null || text.isBlank()) return Optional.empty();
+        String lower = text.toLowerCase();
+        for (KeywordRule rule : keywordRules) {
+            if (lower.contains(rule.keyword())) {
+                return Optional.of(rule);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * 获取可用的入群欢迎规则（优先取第一个配置了欢迎语的命令）。
+     */
+    public Optional<WelcomeRule> getWelcomeRule() {
+        return welcomeRules.isEmpty() ? Optional.empty() : Optional.of(welcomeRules.get(0));
     }
 
     public BotCommandHandler getFallback() {

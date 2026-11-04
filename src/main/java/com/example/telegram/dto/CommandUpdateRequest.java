@@ -9,6 +9,8 @@ public record CommandUpdateRequest(
         String replyContent,
         String replyMarkup,
         String parseMode,
+        String triggerKeywords,
+        String welcomeText,
         Integer status
 ) {
 }

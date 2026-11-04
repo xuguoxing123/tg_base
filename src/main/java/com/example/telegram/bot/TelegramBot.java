@@ -4,6 +4,8 @@ import com.example.telegram.callback.CallbackQueryHandler;
 import com.example.telegram.command.BotCommandHandler;
 import com.example.telegram.command.CommandContext;
 import com.example.telegram.command.CommandRegistry;
+import com.example.telegram.command.KeywordRule;
+import com.example.telegram.command.WelcomeRule;
 import com.example.telegram.config.TelegramBotProperties;
 import com.example.telegram.service.TelegramApiService;
 import org.slf4j.Logger;
@@ -13,7 +15,9 @@ import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.DefaultBotOptions;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
+import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.api.objects.User;
 
 import java.util.HashMap;
 import java.util.List;
@@ -129,8 +133,15 @@ public class TelegramBot extends TelegramLongPollingBot {
     private void processUpdate(Update update) {
         // 长轮询框架不允许异常外抛，统一在此兜底记录
         try {
-            if (update.hasMessage() && update.getMessage().hasText()) {
-                dispatchMessage(update);
+            if (update.hasMessage()) {
+                Message msg = update.getMessage();
+                // 入群检测：有人加入群聊时发送欢迎语
+                if (msg.getNewChatMembers() != null && !msg.getNewChatMembers().isEmpty()) {
+                    dispatchWelcome(msg);
+                }
+                if (msg.hasText()) {
+                    dispatchMessage(update);
+                }
             }
             if (update.hasCallbackQuery()) {
                 dispatchCallback(update.getCallbackQuery());
@@ -140,19 +151,56 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
     }
 
+    /**
+     * 入群欢迎：当检测到新成员加入群聊时，自动发送配置的欢迎语。
+     */
+    private void dispatchWelcome(Message message) {
+        long chatId = message.getChatId();
+        String chatTitle = message.getChat() != null ? message.getChat().getTitle() : "未知群";
+        User[] newMembers = message.getNewChatMembers().toArray(new User[0]);
+
+        registry.getWelcomeRule().ifPresent(rule -> {
+            StringBuilder sb = new StringBuilder();
+            for (User u : newMembers) {
+                String name = u.getFirstName();
+                if (u.getUserName() != null) name += "(@" + u.getUserName() + ")";
+                sb.append(name).append(", ");
+            }
+            if (sb.length() > 2) sb.setLength(sb.length() - 2);
+
+            String welcomeMsg = rule.welcomeText()
+                    .replace("{user}", sb.toString())
+                    .replace("{chat}", chatTitle);
+            log.info("入群欢迎: chat={}, 新成员={}", chatId, sb);
+            apiService.sendText(chatId, welcomeMsg, rule.parseMode());
+        });
+    }
+
     private void dispatchMessage(Update update) {
         long chatId = update.getMessage().getChatId();
         long userId = update.getMessage().getFrom() != null ? update.getMessage().getFrom().getId() : 0L;
         String text = update.getMessage().getText();
 
         BotCommandHandler handler = null;
-        if (text.startsWith("/")) {
+        boolean isCommand = text.startsWith("/");
+
+        if (isCommand) {
             String command = text.substring(1).split("[@\\s]", 2)[0];
             handler = registry.lookup(command).orElse(null);
         }
+
         if (handler == null) {
+            // 非命令文本或命令未匹配 → 尝试关键词自动回复
+            if (!isCommand) {
+                var kwRule = registry.lookupKeyword(text);
+                if (kwRule.isPresent()) {
+                    handleKeywordReply(chatId, text, kwRule.get());
+                    return;
+                }
+            }
             handler = registry.getFallback();
         }
+
         if (handler != null) {
             CommandContext context = new CommandContext(chatId, userId, text);
             String handlerName = handler.getClass().getSimpleName();
@@ -164,6 +212,18 @@ public class TelegramBot extends TelegramLongPollingBot {
             } finally {
                 log.info("处理器执行结束: {}, 成功: {}, 耗时: {}ms", handlerName, success, elapsedMs(start));
             }
+        }
+    }
+
+    /**
+     * 关键词匹配命中后，根据规则的 replyType 分派发送逻辑。
+     */
+    private void handleKeywordReply(long chatId, String matchedText, KeywordRule rule) {
+        log.info("关键词命中: keyword='{}', replyType='{}', text='{}'",
+                rule.keyword(), rule.replyType(), matchedText);
+        switch (rule.replyType()) {
+            case "photo" -> apiService.sendPhoto(chatId, rule.content(), rule.content());
+            default -> apiService.sendText(chatId, rule.content(), rule.parseMode());
         }
     }
 

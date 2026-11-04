@@ -39,6 +39,8 @@ public class BotCommandService {
         e.setReplyContent(req.replyContent());
         e.setReplyMarkup(req.replyMarkup());
         e.setParseMode(req.parseMode());
+        e.setTriggerKeywords(req.triggerKeywords());
+        e.setWelcomeText(req.welcomeText());
         e.setStatus(req.status() != null ? req.status() : 1);
         mapper.insert(e);
         registry.refresh();
@@ -55,6 +57,8 @@ public class BotCommandService {
         e.setReplyContent(req.replyContent());
         e.setReplyMarkup(req.replyMarkup());
         e.setParseMode(req.parseMode());
+        e.setTriggerKeywords(req.triggerKeywords());
+        e.setWelcomeText(req.welcomeText());
         if (req.status() != null) e.setStatus(req.status());
         mapper.updateById(e);
         registry.refresh();
@@ -81,6 +85,7 @@ public class BotCommandService {
         return new CommandVO(
                 e.getId(), e.getName(), e.getDisplayName(), e.getDescription(),
                 e.getReplyType(), e.getReplyContent(), e.getReplyMarkup(),
-                e.getParseMode(), e.getStatus(), e.getSortOrder(), e.getGmtCreate(), e.getGmtModified());
+                e.getParseMode(), e.getTriggerKeywords(), e.getWelcomeText(),
+                e.getStatus(), e.getSortOrder(), e.getGmtCreate(), e.getGmtModified());
     }
 }

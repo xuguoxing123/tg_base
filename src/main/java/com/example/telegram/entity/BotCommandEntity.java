@@ -17,6 +17,8 @@ public class BotCommandEntity {
     private String replyContent;
     private String replyMarkup;   // JSON string stored in DB
     private String parseMode;     // "MarkdownV2" / "HTML" / null (plain text)
+    private String triggerKeywords; // 逗号分隔关键词，非命令文本匹配时自动回复
+    private String welcomeText;     // 入群欢迎语（仅群聊生效）
     private Integer status;        // 0=disabled, 1=enabled
     private String visibleUserIds; // JSON array or null
     private Integer sortOrder;
@@ -55,6 +57,12 @@ public class BotCommandEntity {
 
     public String getParseMode() { return parseMode; }
     public void setParseMode(String parseMode) { this.parseMode = parseMode; }
+
+    public String getTriggerKeywords() { return triggerKeywords; }
+    public void setTriggerKeywords(String triggerKeywords) { this.triggerKeywords = triggerKeywords; }
+
+    public String getWelcomeText() { return welcomeText; }
+    public void setWelcomeText(String welcomeText) { this.welcomeText = welcomeText; }
 
     public Integer getStatus() { return status; }
     public void setStatus(Integer status) { this.status = status; }

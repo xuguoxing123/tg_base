@@ -11,6 +11,8 @@ public record CommandVO(
         String replyContent,
         String replyMarkup,
         String parseMode,
+        String triggerKeywords,
+        String welcomeText,
         Integer status,
         Integer sortOrder,
         LocalDateTime gmtCreate,

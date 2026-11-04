@@ -9,6 +9,8 @@
 - 📝 Markdown / HTML 格式化回复（parseMode 可选）
 - 🔘 内联按钮回调处理（确认/取消等交互）
 - ⌨️ ReplyKeyboard 自定义键盘（点击即发送文字，可路由到任意命令）
+- 🔑 关键词自动回复（非命令文本包含触发词时自动响应）
+- 🎉 入群欢迎语（监听新成员加入事件，支持 `{user}` / `{chat}` 占位符）
 - 🛡️ 滑动窗口限流防刷，有界队列防止 OOM
 - 🗄️ MySQL 持久化 + MyBatis-Plus 逻辑删除
 - 🖥️ 自带管理后台页面（admin.html）
@@ -108,6 +110,8 @@ TelegramBot.onUpdateReceived()
       │
       ▼
 processUpdate()
+      ├── new_chat_members → dispatchWelcome()  (入群欢迎语)
+      │
       ├── 文本消息 → dispatchMessage()
       │                 ├── "/" 开头 → CommandRegistry.lookup()
       │                 │                  ├── 内置处理器
@@ -117,7 +121,8 @@ processUpdate()
       │                 │                  │    ├── buttons (InlineKeyboardMarkup)
       │                 │                  │    └── keyboard (ReplyKeyboardMarkup)
       │                 │                  └── fallback 兜底
-      │                 └── 普通文本 → fallback（键盘按钮点击走此路径）
+      │                 └── 普通文本 → 关键词匹配 → fallback
+      │                       └── triggerKeywords 命中 → 自动回复
       │
       └── 按钮回调 → dispatchCallback()
                         └── CallbackQueryHandler
@@ -177,6 +182,29 @@ processUpdate()
 ```
 
 > 用户点击键盘按钮后，按钮文字会作为普通消息发送给机器人，由 `CommandRegistry` 自动路由。
+
+**关键词自动回复：**
+
+每条动态命令可以配置 `triggerKeywords`（逗号分隔），当用户发送的非命令文本包含其中任一关键词时，Bot 按该命令的 `replyType` 和 `content` 自动回复。匹配忽略大小写，取第一条命中的规则。
+
+```
+triggerKeywords = "价格,报价,多少钱"
+→ 用户发送 "请问价格是多少？" → 命中 "价格" → 回复 content
+```
+
+**入群欢迎语：**
+
+设置 `welcomeText` 字段后，当有人加入群聊时 Bot 自动发送欢迎消息。支持两个占位符：
+
+| 占位符 | 替换为 |
+|--------|------|
+| `{user}` | 新成员名称（如 `张三(@username)`） |
+| `{chat}` | 群聊标题 |
+
+```
+welcomeText = "欢迎 {user} 加入 {chat}！请先看 /help"
+→ "欢迎 张三(@zhangsan) 加入 我的群！请先看 /help"
+```
 
 > 同名命令中 DB 动态命令会覆盖内置处理器，无需改代码即可替换 `/help` 等行为。
 
@@ -249,6 +277,34 @@ server.port=8080                         # Web 端口
 
 **通过后台添加动态命令：**
 直接在 `admin.html` 页面操作，保存后立即生效。
+
+**新增回复类型分支：**
+1. 在 `DynamicCommandHandler.handle()` 的 `switch` 中添加 `case "yourType" ->`
+2. 实现对应的处理方法（参考 `handleKeyboard`）
+3. 在 `admin.html` 下拉选项中增加类型
+4. 如需特殊 UI 字段，扩展 `toggleFields()` 函数
+
+**扩展关键词/欢迎语逻辑：**
+- 关键词匹配规则在 `CommandRegistry.lookupKeyword()` 中（当前为包含匹配，可改为精确/正则）
+- 欢迎语渲染在 `TelegramBot.dispatchWelcome()` 中（可增加更多占位符）
+- 两者均从数据库 `cs_bot_command` 表读取，刷新周期同命令注册表（默认 30s）
+
+## Database Schema
+
+核心表 `cs_bot_command`：
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `command_name` | VARCHAR(64) | 命令名（不含 `/`），唯一 |
+| `description` | VARCHAR(255) | 功能描述 |
+| `reply_type` | VARCHAR(16) | `text` / `photo` / `buttons` / `keyboard` |
+| `reply_content` | TEXT | 回复内容或图片 URL |
+| `reply_markup` | TEXT | 按钮/键盘 JSON 配置 |
+| `parse_mode` | VARCHAR(16) | `MarkdownV2` / `HTML` / 空 |
+| `trigger_keywords` | VARCHAR(512) | 逗号分隔触发关键词 |
+| `welcome_text` | TEXT | 入群欢迎语模板 |
+| `enabled` | TINYINT | 1=启用 0=禁用 |
+| `deleted` | TINYINT | 逻辑删除标记 |
 
 ## License
 
