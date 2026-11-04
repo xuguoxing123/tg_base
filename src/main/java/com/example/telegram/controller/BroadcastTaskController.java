@@ -23,7 +23,7 @@ import java.util.Map;
  * 广播任务管理 REST API。
  */
 @RestController
-@RequestMapping("/api/tasks")
+@RequestMapping("/api/broadcast-tasks")
 public class BroadcastTaskController {
 
     private final BroadcastTaskService service;

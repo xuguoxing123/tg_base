@@ -48,7 +48,7 @@ public class BroadcastTaskRunner {
     /**
      * 每分钟的第 0 秒执行一次扫描。
      */
-    @Scheduled(cron = "${telegram.scheduled-task.scan-cron:0 * * * * *}")
+    @Scheduled(cron = "${telegram.broadcast-task.scan-cron:0 * * * * *}")
     public void scan() {
         List<BroadcastTaskEntity> tasks;
         try {

@@ -219,7 +219,7 @@ welcomeText = "欢迎 {user} 加入 {chat}！请先看 /help"
 
 > 同名命令中 DB 动态命令会覆盖内置处理器，无需改代码即可替换 `/help` 等行为。
 
-## Scheduled Tasks（定时任务）
+## Broadcast Tasks（定时广播任务）
 
 运营可在后台「定时任务」Tab 配置“目标群 + cron 表达式 + 回复内容”，调度器 `BroadcastTaskRunner` 每分钟扫描一次，命中则自动推送到指定 chat。
 
@@ -264,15 +264,15 @@ welcomeText = "欢迎 {user} 加入 {chat}！请先看 /help"
 | DELETE | `/api/commands/{id}` | 删除（逻辑删除） |
 | POST | `/api/commands/reload` | 手动刷新注册表 |
 
-定时任务 API，基础路径：`/api/tasks`
+广播任务 API，基础路径：`/api/broadcast-tasks`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/tasks?page=1&size=50` | 分页查询 |
-| POST | `/api/tasks` | 创建定时任务 |
-| PUT | `/api/tasks/{id}` | 更新任务 |
-| PATCH | `/api/tasks/{id}/status` | 启用/禁用 |
-| DELETE | `/api/tasks/{id}` | 删除（逻辑删除） |
+| GET | `/api/broadcast-tasks?page=1&size=50` | 分页查询 |
+| POST | `/api/broadcast-tasks` | 创建广播任务 |
+| PUT | `/api/broadcast-tasks/{id}` | 更新任务 |
+| PATCH | `/api/broadcast-tasks/{id}/status` | 启用/禁用 |
+| DELETE | `/api/broadcast-tasks/{id}` | 删除（逻辑删除） |
 
 ## Configuration
 
@@ -302,8 +302,8 @@ telegram.ai.fallback.enabled=true        # 启用开关
 telegram.ai.fallback.reply-text=抱歉…    # 默认回复文本（后续接入 LLM 后可留空）
 telegram.ai.fallback.parse-mode=         # 回复格式化模式（空/MarkdownV2/HTML）
 
-# ===== Scheduled Tasks =====
-telegram.scheduled-task.scan-cron=0 * * * * *   # 调度器扫描周期（默认每分钟）
+# ===== Broadcast Tasks =====
+telegram.broadcast-task.scan-cron=0 * * * * *   # 调度器扫描周期（默认每分钟）
 ```
 
 ## Logging
