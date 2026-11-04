@@ -6,7 +6,9 @@
 
 - 🤖 长轮询接收 Telegram 消息，自动分片保证会话有序
 - ⚡ 动态命令系统 — 运营通过后台增删改命令，无需重启服务
+- 📝 Markdown / HTML 格式化回复（parseMode 可选）
 - 🔘 内联按钮回调处理（确认/取消等交互）
+- ⌨️ ReplyKeyboard 自定义键盘（点击即发送文字，可路由到任意命令）
 - 🛡️ 滑动窗口限流防刷，有界队列防止 OOM
 - 🗄️ MySQL 持久化 + MyBatis-Plus 逻辑删除
 - 🖥️ 自带管理后台页面（admin.html）
@@ -110,8 +112,12 @@ processUpdate()
       │                 ├── "/" 开头 → CommandRegistry.lookup()
       │                 │                  ├── 内置处理器
       │                 │                  ├── DB 动态命令
+      │                 │                  │    ├── text (+ parseMode)
+      │                 │                  │    ├── photo
+      │                 │                  │    ├── buttons (InlineKeyboardMarkup)
+      │                 │                  │    └── keyboard (ReplyKeyboardMarkup)
       │                 │                  └── fallback 兜底
-      │                 └── 普通文本 → fallback
+      │                 └── 普通文本 → fallback（键盘按钮点击走此路径）
       │
       └── 按钮回调 → dispatchCallback()
                         └── CallbackQueryHandler
@@ -137,9 +143,20 @@ processUpdate()
 |-----------|------|-------------|-------------|
 | `text` | 纯文本 | 文本内容 | - |
 | `photo` | 图片 | 图片 URL | - |
-| `buttons` | 带按钮文本 | 文本内容 | JSON 按钮配置 |
+| `buttons` | 内联按钮（InlineKeyboardMarkup） | 文本内容 | JSON 对象数组 |
+| `keyboard` | 自定义键盘（ReplyKeyboardMarkup） | 文本内容 | JSON 字符串数组 |
 
-**按钮 JSON 示例：**
+**格式化模式（parseMode）：**
+
+每条命令可选择以下格式化方式之一：
+
+| parseMode | 说明 |
+|-----------|------|
+| *(空)* | 纯文本（默认） |
+| `MarkdownV2` | Telegram MarkdownV2 语法（加粗、斜体、链接等） |
+| `HTML` | HTML 标签（`<b>`、`<i>`、`<a>` 等） |
+
+**内联按钮 JSON 示例（buttons）：**
 
 ```json
 [
@@ -149,6 +166,17 @@ processUpdate()
   ]
 ]
 ```
+
+**自定义键盘 JSON 示例（keyboard）：**
+
+```json
+[
+  ["北京", "上海"],
+  ["广州", "深圳"]
+]
+```
+
+> 用户点击键盘按钮后，按钮文字会作为普通消息发送给机器人，由 `CommandRegistry` 自动路由。
 
 > 同名命令中 DB 动态命令会覆盖内置处理器，无需改代码即可替换 `/help` 等行为。
 
