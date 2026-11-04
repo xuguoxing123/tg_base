@@ -11,6 +11,7 @@
 - ⌨️ ReplyKeyboard 自定义键盘（点击即发送文字，可路由到任意命令）
 - 🔑 关键词自动回复（非命令文本包含触发词时自动响应）
 - 🎉 入群欢迎语（监听新成员加入事件，支持 `{user}` / `{chat}` 占位符）
+- 🤖 AI 对话兜底 — 无法匹配时自动调用 LLM/配置文本回复（接口已预留，可随时接入）
 - 🛡️ 滑动窗口限流防刷，有界队列防止 OOM
 - 🗄️ MySQL 持久化 + MyBatis-Plus 逻辑删除
 - 🖥️ 自带管理后台页面（admin.html）
@@ -89,6 +90,9 @@ telegram/
 │   ├── entity/                           # 数据库实体
 │   ├── mapper/                           # MyBatis Mapper
 │   └── service/                          # 业务 & API 封装
+│       └── ai/                           # AI 对话补全服务
+│           ├── ChatCompletionService.java       # AI 能力抽象接口
+│           └── DefaultChatCompletionService.java # 默认实现（静态文本）
 ├── src/main/resources/
 │   ├── application.properties
 │   ├── logback-spring.xml
@@ -121,8 +125,12 @@ processUpdate()
       │                 │                  │    ├── buttons (InlineKeyboardMarkup)
       │                 │                  │    └── keyboard (ReplyKeyboardMarkup)
       │                 │                  └── fallback 兜底
-      │                 └── 普通文本 → 关键词匹配 → fallback
-      │                       └── triggerKeywords 命中 → 自动回复
+      │                 └── 普通文本 → 关键词匹配 → AI Fallback
+      │                       ├── triggerKeywords 命中 → 自动回复
+      │                       └── 未命中 → AiFallbackCommandHandler
+      │                              └── ChatCompletionService.complete()
+      │                                   ├── 当前：返回配置静态文本
+      │                                   └── 未来：对接 LLM API
       │
       └── 按钮回调 → dispatchCallback()
                         └── CallbackQueryHandler
@@ -135,6 +143,7 @@ processUpdate()
 | Bot 入口层 | Update 解析、限流、线程调度 | `TelegramBot`, `RateLimiter` |
 | 命令分发层 | 命令查找与路由 | `CommandRegistry`, `DynamicCommandHandler` |
 | 处理器层 | 业务逻辑实现 | `*CommandHandler`, `*CallbackHandler` |
+| AI 服务层 | 对话补全抽象与实现 | `ChatCompletionService`, `DefaultChatCompletionService` |
 | 服务封装层 | Telegram API 统一出口 | `TelegramApiService` |
 | 管理后台层 | 命令 CRUD + 热刷新 | `BotCommandController`, `BotCommandService` |
 
@@ -217,6 +226,7 @@ welcomeText = "欢迎 {user} 加入 {chat}！请先看 /help"
 | `/echo` | `EchoCommandHandler` | 回显输入 |
 | `/photo` | `PhotoCommandHandler` | 发送图片 |
 | `/buttons` | `ButtonsCommandHandler` | 带按钮消息 |
+| *(兜底)* | `AiFallbackCommandHandler` | AI 对话兜底（非命令且关键词未命中时触发） |
 
 ## Admin API
 
@@ -253,6 +263,11 @@ telegram.worker-queue-capacity=200       # 每分片队列容量
 telegram.rate-limit.max-requests=20      # 限流：最大请求数
 telegram.rate-limit.window-millis=10000  # 限流：窗口大小(ms)
 server.port=8080                         # Web 端口
+
+# ===== AI Fallback =====
+telegram.ai.fallback.enabled=true        # 启用开关
+telegram.ai.fallback.reply-text=抱歉…    # 默认回复文本（后续接入 LLM 后可留空）
+telegram.ai.fallback.parse-mode=         # 回复格式化模式（空/MarkdownV2/HTML）
 ```
 
 ## Logging
@@ -288,6 +303,21 @@ server.port=8080                         # Web 端口
 - 关键词匹配规则在 `CommandRegistry.lookupKeyword()` 中（当前为包含匹配，可改为精确/正则）
 - 欢迎语渲染在 `TelegramBot.dispatchWelcome()` 中（可增加更多占位符）
 - 两者均从数据库 `cs_bot_command` 表读取，刷新周期同命令注册表（默认 30s）
+
+**接入真实 LLM 替换 AI 兜底：**
+只需新建一个类实现 `ChatCompletionService` 接口并标注 `@Primary`，无需修改 Handler 代码：
+```java
+@Primary
+@Service
+public class QwenChatCompletionService implements ChatCompletionService {
+    @Override
+    public String complete(long userId, long chatId, String userText) {
+        // 调用通义千问 / OpenAI / 本地模型 API
+        return llmClient.chat(userId, userText);
+    }
+}
+```
+`DefaultChatCompletionService` 会自动退居二线（Spring 优先注入 `@Primary` Bean）。
 
 ## Database Schema
 
