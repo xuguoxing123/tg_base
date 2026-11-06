@@ -226,7 +226,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
 
         if (handler != null) {
-            CommandContext context = new CommandContext(chatId, userId, text, role, false);
+            CommandContext context = new CommandContext(chatId, userId, text, role, false, msg.getMessageId());
             String handlerName = handler.getClass().getSimpleName();
             String cmdName = isCommand ? text.substring(1).split("[@\\s]", 2)[0] : null;
             long start = System.nanoTime();

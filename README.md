@@ -13,6 +13,7 @@
 - 🎉 入群欢迎语（监听新成员加入事件，支持 `{user}` / `{chat}` 占位符）
 - 🧠 AI 对话兜底 — 接入通义千问 LLM，支持多轮对话上下文 + 自动降级静态文本
 - 👥 用户管理与权限体系 — 自动记录活跃用户，ADMIN/USER 分级，黑名单封禁
+- 🛡️ 群组管理命令 — /pin /ban /kick /setdesc 等，含管理员权限校验
 - 📐 消息模板变量引擎 — 回复内容支持 {{date}}/{{time}}/{{random:min-max}} 等动态替换
 - ⏰ 定时任务推送 — 运营配置“目标群 + cron + 内容”，调度器按周期自动发送
 - 🛡️ 滑动窗口限流防刷，有界队列防止 OOM
@@ -95,6 +96,10 @@ telegram/
 │   │   ├── DynamicCommandHandler.java    # 通用动态处理器
 │   │   ├── TemplateRenderer.java         # 消息模板变量渲染引擎
 │   │   └── impl/                         # 内置命令实现
+│   │       └── group/                    # 群管理命令（/pin /ban /kick 等）
+│   │           ├── GroupAdminCommand.java        # 命令名枚举
+│   │           ├── AbstractGroupAdminHandler.java # 基类（参数解析+权限校验）
+│   │           └── *CommandHandler.java          # Pin/Unpin/Ban/Unban/Kick/SetDesc/SetTitle
 │   ├── config/                           # 配置类
 │   ├── controller/                       # REST API
 │   │   ├── BotCommandController.java     # 指令管理
@@ -157,6 +162,7 @@ processUpdate()
       │                 │                  │    ├── photo
       │                 │                  │    ├── buttons (InlineKeyboardMarkup)
       │                 │                  │    └── keyboard (ReplyKeyboardMarkup)
+      │                 │                  ├── 群管命令 (/pin /ban /kick…) → 管理员权限校验
       │                 │                  └── fallback 兜底
       │                 └── 普通文本 → 关键词匹配 → AI Fallback
       │                       ├── triggerKeywords 命中 → TemplateRenderer.render() → 自动回复
@@ -179,6 +185,7 @@ processUpdate()
 | Bot 入口层 | Update 解析、限流、线程调度、用户记录、日志埋点 | `TelegramBot`, `RateLimiter` |
 | 命令分发层 | 命令查找与路由、黑名单拦截、权限检查 | `CommandRegistry`, `DynamicCommandHandler` |
 | 处理器层 | 业务逻辑实现 | `*CommandHandler`, `*CallbackHandler` |
+| 群管命令层 | 群置顶/封禁/移出/改资料，管理员权限校验 | `AbstractGroupAdminHandler`, `GroupAdminCommand` |
 | AI 服务层 | LLM 对话补全、多轮上下文、降级策略 | `ChatCompletionService`, `QwenChatCompletionService`, `ChatMemoryManager` |
 | 模板引擎层 | 消息变量替换渲染 | `TemplateRenderer` |
 | 用户管理层 | 用户 upsert、角色分级、封禁 | `TelegramUserService`, `TelegramUserController` |
@@ -354,7 +361,36 @@ Bot 自动记录与其交互的所有 Telegram 用户，支持角色分级和黑
 | `/echo` | `EchoCommandHandler` | 回显输入 |
 | `/photo` | `PhotoCommandHandler` | 发送图片 |
 | `/buttons` | `ButtonsCommandHandler` | 带按钮消息 |
+| `/pin` `/ban` `/kick` … | `command/impl/group/*` | 群管理命令（见下节） |
 | *(兜底)* | `AiFallbackCommandHandler` | AI 对话兜底（非命令且关键词未命中时触发） |
+
+## Group Administration（群组管理命令）
+
+Bot 被设为群管理员后，提供一组内置的群管命令（不走 DB 动态配置，因涉及权限校验）。
+
+**可用命令：**
+
+| 命令 | 功能 | Telegram API |
+|------|------|-------------|
+| `/pin [message_id]` | 置顶消息（缺省作用于触发命令的那条） | `PinChatMessage` |
+| `/unpin [message_id]` | 取消置顶（缺省取消当前置顶的那条） | `UnpinChatMessage` |
+| `/ban <user_id> [天数]` | 封禁成员（可选时长，缺省永久） | `BanChatMember` |
+| `/unban <user_id>` | 解封成员 | `UnbanChatMember` |
+| `/kick <user_id>` | 移出/禁言成员（禁用全部发言权限） | `RestrictChatMember` |
+| `/setdesc <text>` | 修改群描述 | `SetChatDescription` |
+| `/settitle <text>` | 修改群名称 | `SetChatTitle` |
+
+**权限校验（双重保险）：**
+1. 优先调用 Telegram 官方 `GetChatMember` 获取发送者在群中的真实状态，仅 `creator` / `administrator` 放行
+2. 查询失败时降级到本地 `cs_telegram_user.role`（`ADMIN` 才放行）
+3. 非群聊环境（chatId > 0）直接拒绝执行
+
+**实现结构：**
+- `GroupAdminCommand` 枚举集中定义命令名，消除字符串魔法值
+- `AbstractGroupAdminHandler` 基类统一处理参数解析 + 群聊/权限校验，子类只需实现 `doHandle()`
+- 各处理器 `@Component` 注册，`CommandRegistry` 启动时自动收集
+
+> 使用前提：需先在群内将 Bot 设为管理员，并授予置顶、封禁、修改资料等对应权限，否则调用会返回失败提示。
 
 ## Admin API
 
@@ -464,6 +500,11 @@ telegram.broadcast-task.scan-cron=0 * * * * *   # 调度器扫描周期（默认
 **通过后台添加动态命令：**
 直接在 `admin.html` 页面操作，保存后立即生效。
 
+**新增群管理命令：**
+1. 在 `GroupAdminCommand` 枚举中添加一个常量（带命令名与注释）
+2. 在 `command/impl/group/` 下新建处理器继承 `AbstractGroupAdminHandler`，实现 `name()` 返回枚举值 + `doHandle()` 具体动作
+3. 加 `@Component`，权限校验由基类自动完成
+
 **新增回复类型分支：**
 1. 在 `DynamicCommandHandler.handle()` 的 `switch` 中添加 `case "yourType" ->`
 2. 实现对应的处理方法（参考 `handleKeyboard`）
@@ -555,7 +596,7 @@ public class QwenChatCompletionService implements ChatCompletionService {
 详细扩展计划见 [docs/ROADMAP.md](docs/ROADMAP.md)，涵盖三个阶段：
 
 - **Phase 1** — 核心能力补全 ✅（LLM 接入、用户权限体系、模板变量引擎）
-- **Phase 2** — 体验提升 ✅ 数据面板已完成；多媒体、群管命令、Webhook 待做
+- **Phase 2** — 体验提升 ✅ 数据面板、群管命令已完成；多媒体、Webhook 待做
 - **Phase 3** — 产品化扩展（Mini App、深度链接、RSS 聚合、分布式改造）
 
 ## License

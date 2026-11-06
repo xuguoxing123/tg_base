@@ -181,34 +181,35 @@ CREATE TABLE cs_telegram_user (
 
 ---
 
-### 2.3 群组管理命令
+### ✅ 2.3 群组管理命令
 
 **目标：** Bot 作为群管理员时，提供实用的管理工具。
 
-**命令设计：**
+**已实现命令（内置处理器，含群聊环境 + 管理员权限校验）：**
 
 | 命令 | 功能 | Telegram API |
 |------|------|-------------|
-| `/pin <message_id>` | 置顶消息 | `PinChatMessage` |
-| `/unpin` | 取消置顶 | `UnpinChatMessage` |
-| `/ban <user_id>` | 封禁成员 | `BanChatMember` |
+| `/pin [message_id]` | 置顶消息（缺省作用于触发消息） | `PinChatMessage` |
+| `/unpin [message_id]` | 取消置顶 | `UnpinChatMessage` |
+| `/ban <user_id> [天数]` | 封禁成员 | `BanChatMember` |
 | `/unban <user_id>` | 解封成员 | `UnbanChatMember` |
-| `/kick <user_id>` | 移出群聊 | `BanChatMember` (can_send_messages=false) |
+| `/kick <user_id>` | 移出/禁言成员 | `RestrictChatMember`(全禁用权限) |
 | `/setdesc <text>` | 修改群描述 | `SetChatDescription` |
 | `/settitle <text>` | 修改群名称 | `SetChatTitle` |
 
 **具体任务：**
-- [ ] 新建 `command/impl/group/` 子包存放群管命令处理器
-- [ ] 群管命令需要校验：操作者必须是群管理员/创建者
-- [ ] `TelegramApiService` 封装对应 API 调用
-- [ ] 内置处理器注册（不走 DB 动态配置，因为涉及权限校验）
+- [x] 新建 `command/impl/group/` 子包存放群管命令处理器
+- [x] 群管命令校验：操作者必须是群管理员/创建者（`GetChatMember` 优先，DB 角色降级）
+- [x] `TelegramApiService` 封装对应 API 调用 + `executeBool` 布尔结果处理
+- [x] 内置处理器注册（不走 DB 动态配置，涉及权限校验）
+- [x] `CommandContext` 新增 `messageId` 字段供 `/pin` 默认使用
 
 **涉及文件：**
-- 新建 `command/impl/group/PinCommandHandler.java`
-- 新建 `command/impl/group/BanCommandHandler.java`
-- 新建 `command/impl/group/SetDescCommandHandler.java`
-- 修改 `service/TelegramApiService.java`
-- 修改 `bot/TelegramBot.java` — 解析 `new_chat_member`、`left_chat_member` 等事件
+- 新建 `command/impl/group/AbstractGroupAdminHandler.java` ✅ (基类：参数解析+权限校验)
+- 新建 `command/impl/group/{Pin,Unpin,Ban,Unban,Kick,SetDesc,SetTitle}CommandHandler.java` ✅
+- 修改 `service/TelegramApiService.java` ✅ (群管 API 封装 + getChatMemberStatus)
+- 修改 `command/CommandContext.java` ✅ (新增 messageId)
+- 修改 `bot/TelegramBot.java` ✅ (传递 messageId)
 
 ---
 
