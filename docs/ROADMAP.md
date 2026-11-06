@@ -148,10 +148,10 @@ CREATE TABLE cs_telegram_user (
 - 广播任务执行成功率（饼图）
 
 **具体任务：**
-- [ ] 新建 `cs_bot_message_log` 表记录每条消息（command_name, user_id, chat_id, timestamp）
-- [ ] 新建统计 API：`/api/stats/commands`、`/api/stats/daily-active`、`/api/stats/hourly-volume`
-- [ ] admin.html 新增 Dashboard Tab，引入 ECharts CDN
-- [ ] 定时聚合任务（可选）：每天凌晨汇总前一天数据到统计表
+- [x] 新建 `cs_bot_message_log` 表记录每条消息（command_name, user_id, chat_id, timestamp）
+- [x] 新建统计 API：`/api/stats/commands`、`/api/stats/daily-active`、`/api/stats/hourly-volume`（额外补了 `/api/stats/broadcast`）
+- [x] admin.html 新增 Dashboard Tab，引入 ECharts CDN
+- [ ] 定时聚合任务（可选，未做）：每天凌晨汇总前一天数据到统计表——当前直接查 `cs_bot_message_log` 实时聚合，数据量不大时无需预汇总
 
 **涉及文件：**
 - 新建 `entity/MessageLogEntity.java`
