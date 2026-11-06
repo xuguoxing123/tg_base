@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS cs_bot_command (
     parse_mode      VARCHAR(16) DEFAULT NULL COMMENT '文本格式化: MarkdownV2/HTML/null(纯文本)',
     trigger_keywords VARCHAR(512) DEFAULT NULL COMMENT '逗号分隔触发关键词，非命令文本匹配时自动回复',
     welcome_text    TEXT DEFAULT NULL COMMENT '入群欢迎语（仅群聊生效）',
+    system_prompt   TEXT DEFAULT NULL COMMENT 'AI 兜底时该命令对应的系统提示词（覆盖全局配置）',
     status          TINYINT NOT NULL DEFAULT 1 COMMENT '0禁用 1启用',
     visible_user_ids JSON COMMENT '可见用户ID白名单,null=全部',
     sort_order      INT DEFAULT 0,

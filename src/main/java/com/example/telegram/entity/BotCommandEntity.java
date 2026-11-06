@@ -19,6 +19,7 @@ public class BotCommandEntity {
     private String parseMode;     // "MarkdownV2" / "HTML" / null (plain text)
     private String triggerKeywords; // 逗号分隔关键词，非命令文本匹配时自动回复
     private String welcomeText;     // 入群欢迎语（仅群聊生效）
+    private String systemPrompt;   // AI 兜底时该命令对应的系统提示词（覆盖全局配置）
     private Integer status;        // 0=disabled, 1=enabled
     private String visibleUserIds; // JSON array or null
     private Integer sortOrder;
@@ -63,6 +64,9 @@ public class BotCommandEntity {
 
     public String getWelcomeText() { return welcomeText; }
     public void setWelcomeText(String welcomeText) { this.welcomeText = welcomeText; }
+
+    public String getSystemPrompt() { return systemPrompt; }
+    public void setSystemPrompt(String systemPrompt) { this.systemPrompt = systemPrompt; }
 
     public Integer getStatus() { return status; }
     public void setStatus(Integer status) { this.status = status; }

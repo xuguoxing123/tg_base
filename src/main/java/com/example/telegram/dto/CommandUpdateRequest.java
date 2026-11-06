@@ -11,6 +11,7 @@ public record CommandUpdateRequest(
         String parseMode,
         String triggerKeywords,
         String welcomeText,
+        String systemPrompt,
         Integer status
 ) {
 }

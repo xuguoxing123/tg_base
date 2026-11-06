@@ -13,6 +13,7 @@ public record CommandVO(
         String parseMode,
         String triggerKeywords,
         String welcomeText,
+        String systemPrompt,
         Integer status,
         Integer sortOrder,
         LocalDateTime gmtCreate,

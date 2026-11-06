@@ -96,6 +96,7 @@ tr:hover { background: #f0f7ff; }
         </div>
         <div class="form-group"><label>触发关键词 (逗号分隔，非命令消息自动回复)</label><input id="fTriggerKeywords" placeholder="价格,报价,多少钱"></div>
         <div class="form-group"><label>入群欢迎语 ({user}=用户名 {chat}=群名)</label><textarea id="fWelcomeText" placeholder="欢迎 {user} 加入 {chat}！"></textarea></div>
+        <div class="form-group"><label>AI 系统提示词（LLM 兜底时覆盖全局配置，留空则使用默认）</label><textarea id="fSystemPrompt" placeholder="你是一个专业客服助手，请用中文简洁回答问题。"></textarea></div>
         <div class="form-group"><label>状态</label>
             <select id="fStatus"><option value="1">启用</option><option value="0">禁用</option></select>
         </div>
@@ -206,6 +207,7 @@ function openCreate() {
     document.getElementById('fParseMode').value = '';
     document.getElementById('fTriggerKeywords').value = '';
     document.getElementById('fWelcomeText').value = '';
+    document.getElementById('fSystemPrompt').value = '';
     document.getElementById('fStatus').value = '1';
     toggleFields();
     document.getElementById('overlay').classList.add('active');
@@ -228,6 +230,7 @@ async function openEdit(id) {
     document.getElementById('fParseMode').value = cmd.parseMode || '';
     document.getElementById('fTriggerKeywords').value = cmd.triggerKeywords || '';
     document.getElementById('fWelcomeText').value = cmd.welcomeText || '';
+    document.getElementById('fSystemPrompt').value = cmd.systemPrompt || '';
     document.getElementById('fStatus').value = cmd.status;
     toggleFields();
     document.getElementById('overlay').classList.add('active');
@@ -247,6 +250,7 @@ async function save() {
         parseMode: document.getElementById('fParseMode').value || null,
         triggerKeywords: document.getElementById('fTriggerKeywords').value.trim() || null,
         welcomeText: document.getElementById('fWelcomeText').value.trim() || null,
+        systemPrompt: document.getElementById('fSystemPrompt').value.trim() || null,
         status: parseInt(document.getElementById('fStatus').value)
     };
     let res;

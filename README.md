@@ -387,6 +387,14 @@ public class QwenChatCompletionService implements ChatCompletionService {
 | `last_exec_time` | DATETIME | 上次执行时间 |
 | `next_exec_time` | DATETIME | 下次预计执行时间 |
 
+## Roadmap
+
+详细扩展计划见 [docs/ROADMAP.md](docs/ROADMAP.md)，涵盖三个阶段：
+
+- **Phase 1** — 核心能力补全（LLM 接入、用户权限体系、模板变量引擎）
+- **Phase 2** — 体验提升（数据面板、多媒体、群管命令、Webhook）
+- **Phase 3** — 产品化扩展（Mini App、深度链接、RSS 聚合、分布式改造）
+
 ## License
 
 Internal project — all rights reserved.

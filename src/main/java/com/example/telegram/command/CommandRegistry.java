@@ -86,7 +86,8 @@ public class CommandRegistry {
                         e.getReplyType(),
                         e.getReplyContent(),
                         e.getReplyMarkup(),
-                        e.getParseMode());
+                        e.getParseMode(),
+                        e.getSystemPrompt());
                 next.put(def.name(), new DynamicCommandHandler(apiService, def));
 
                 // 3. 关键词触发规则

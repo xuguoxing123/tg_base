@@ -10,6 +10,7 @@ public record CommandCreateRequest(
         String parseMode,
         String triggerKeywords,
         String welcomeText,
+        String systemPrompt,
         Integer status
 ) {
 }
