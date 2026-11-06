@@ -3,6 +3,7 @@ package com.example.telegram.bot;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.telegram.entity.BroadcastTaskEntity;
 import com.example.telegram.mapper.BroadcastTaskMapper;
+import com.example.telegram.service.StatsService;
 import com.example.telegram.service.TelegramApiService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,10 +40,12 @@ public class BroadcastTaskRunner {
 
     private final BroadcastTaskMapper taskMapper;
     private final TelegramApiService apiService;
+    private final StatsService statsService;
 
-    public BroadcastTaskRunner(BroadcastTaskMapper taskMapper, TelegramApiService apiService) {
+    public BroadcastTaskRunner(BroadcastTaskMapper taskMapper, TelegramApiService apiService, StatsService statsService) {
         this.taskMapper = taskMapper;
         this.apiService = apiService;
+        this.statsService = statsService;
     }
 
     /**
@@ -97,6 +100,8 @@ public class BroadcastTaskRunner {
         log.info("广播任务触发: id={}, name={}, chatId={}, type={}",
                 task.getId(), task.getName(), task.getChatId(), task.getReplyType());
         boolean success = dispatch(task);
+        // 异步记录广播任务执行日志
+        statsService.logMessage(0L, task.getChatId(), task.getName(), "BroadcastTaskRunner", success);
         task.setLastExecTime(success ? now : task.getLastExecTime());
         task.setNextExecTime(computeNext(task.getCronExpression(), now));
         try {

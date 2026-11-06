@@ -17,7 +17,8 @@
 - ⏰ 定时任务推送 — 运营配置“目标群 + cron + 内容”，调度器按周期自动发送
 - 🛡️ 滑动窗口限流防刷，有界队列防止 OOM
 - 🗄️ MySQL 持久化 + MyBatis-Plus 逻辑删除
-- 🖥️ 自带管理后台页面（admin.html，含指令/任务/用户三个 Tab）
+- 📊 数据统计面板 — ECharts 可视化：命令频率 Top10、日活趋势、小时分布、广播成功率
+- 🖥️ 自带管理后台页面（admin.html，含指令/任务/用户/数据面板四个 Tab）
 
 ## Tech Stack
 
@@ -30,6 +31,7 @@
 | ORM | MyBatis-Plus | 3.5.9 |
 | Database | MySQL | 8.0 |
 | Bot SDK | telegrambots | 6.8.0 |
+| Chart | ECharts (CDN) | 5.x |
 | Build | Maven | - |
 
 ## Quick Start
@@ -97,18 +99,22 @@ telegram/
 │   ├── controller/                       # REST API
 │   │   ├── BotCommandController.java     # 指令管理
 │   │   ├── BroadcastTaskController.java  # 广播任务
-│   │   └── TelegramUserController.java   # 用户管理
+│   │   ├── TelegramUserController.java   # 用户管理
+│   │   └── StatsController.java          # 数据统计 API
 │   ├── dto/                              # 请求/响应对象
 │   ├── entity/                           # 数据库实体
 │   │   ├── BotCommandEntity.java
 │   │   ├── BroadcastTaskEntity.java
-│   │   └── TelegramUserEntity.java       # 用户实体
+│   │   ├── TelegramUserEntity.java       # 用户实体
+│   │   └── MessageLogEntity.java         # 消息日志实体
 │   ├── mapper/                           # MyBatis Mapper
 │   │   ├── BotCommandMapper.java
 │   │   ├── BroadcastTaskMapper.java
-│   │   └── TelegramUserMapper.java       # 用户 UPSERT
+│   │   ├── TelegramUserMapper.java       # 用户 UPSERT
+│   │   └── MessageLogMapper.java         # 消息日志 + 聚合查询
 │   └── service/                          # 业务 & API 封装
 │       ├── TelegramUserService.java      # 用户管理服务
+│       ├── StatsService.java             # 数据统计服务 (@Async 写入)
 │       └── ai/                           # AI 对话补全服务
 │           ├── ChatCompletionService.java        # AI 能力抽象接口
 │           ├── DefaultChatCompletionService.java # 默认实现（静态文本降级）
@@ -160,6 +166,8 @@ processUpdate()
       │                                   ├── ChatMemoryManager → 多轮上下文
       │                                   └── 失败降级 → DefaultChatCompletionService
       │
+      ├── statsService.logMessage()  (异步记录消息日志)
+      │
       └── 按钮回调 → dispatchCallback()
                         └── CallbackQueryHandler
 ```
@@ -168,14 +176,15 @@ processUpdate()
 
 | Layer | Responsibility | Key Classes |
 |-------|---------------|-------------|
-| Bot 入口层 | Update 解析、限流、线程调度、用户记录 | `TelegramBot`, `RateLimiter` |
+| Bot 入口层 | Update 解析、限流、线程调度、用户记录、日志埋点 | `TelegramBot`, `RateLimiter` |
 | 命令分发层 | 命令查找与路由、黑名单拦截、权限检查 | `CommandRegistry`, `DynamicCommandHandler` |
 | 处理器层 | 业务逻辑实现 | `*CommandHandler`, `*CallbackHandler` |
 | AI 服务层 | LLM 对话补全、多轮上下文、降级策略 | `ChatCompletionService`, `QwenChatCompletionService`, `ChatMemoryManager` |
 | 模板引擎层 | 消息变量替换渲染 | `TemplateRenderer` |
 | 用户管理层 | 用户 upsert、角色分级、封禁 | `TelegramUserService`, `TelegramUserController` |
+| 数据统计层 | 异步消息日志写入、聚合查询、图表数据源 | `StatsService`, `StatsController`, `MessageLogMapper` |
 | 服务封装层 | Telegram API 统一出口 | `TelegramApiService` |
-| 管理后台层 | 命令 CRUD + 热刷新 + 用户管理 | `BotCommandController`, `BotCommandService` |
+| 管理后台层 | 命令 CRUD + 热刷新 + 用户管理 + Dashboard | `BotCommandController`, `BotCommandService` |
 
 ## Dynamic Commands
 
@@ -370,6 +379,30 @@ Bot 自动记录与其交互的所有 Telegram 用户，支持角色分级和黑
 | PATCH | `/api/broadcast-tasks/{id}/status` | 启用/禁用 |
 | DELETE | `/api/broadcast-tasks/{id}` | 删除（逻辑删除） |
 
+数据统计 API，基础路径：`/api/stats`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/stats/commands?limit=10` | 命令使用频率 Top N（最近 7 天） |
+| GET | `/api/stats/daily-active?days=30` | 日活用户趋势 |
+| GET | `/api/stats/hourly-volume` | 今日每小时消息量分布 |
+| GET | `/api/stats/broadcast` | 广播任务执行成功率 |
+
+## Dashboard（数据统计面板）
+
+访问 `admin.html` 的「数据面板」Tab，基于 ECharts 可视化展示：
+
+| 图表 | 数据源 | 说明 |
+|------|--------|------|
+| 命令频率柱状图 | `cs_bot_message_log` | 最近 7 天 Top 10 命令使用次数 |
+| 日活趋势折线图 | `cs_bot_message_log` | 最近 30 天每日独立用户数 |
+| 小时分布柱状图 | `cs_bot_message_log` | 今日 0~23 时消息量分布 |
+| 广播成功率饼图 | `cs_bot_message_log` | BroadcastTaskRunner 成功/失败比例 |
+
+**埋点机制：**
+- 命令处理、关键词命中、广播任务发送均通过 `StatsService.logMessage()` 异步写入日志表
+- `@Async` + `@EnableAsync` 保证不阻塞主流程，异常仅 warn 不影响业务
+
 ## Configuration
 
 所有配置项位于 `application.properties`，敏感值通过环境变量注入：
@@ -504,12 +537,25 @@ public class QwenChatCompletionService implements ChatCompletionService {
 | `last_active_time` | DATETIME | 最近活跃时间 |
 | `message_count` | INT | 累计消息数 |
 
+消息日志表 `cs_bot_message_log`：
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `user_id` | BIGINT | Telegram 用户 ID |
+| `chat_id` | BIGINT | 会话/群 ID |
+| `command_name` | VARCHAR(64) | 命令名或关键词（非命令为 NULL） |
+| `handler_type` | VARCHAR(32) | 处理器类型简名 |
+| `success` | TINYINT | 1=成功 0=失败 |
+| `gmt_create` | DATETIME | 消息时间戳 |
+
+索引：`idx_user_date(user_id, gmt_create)`、`idx_command(command_name)`、`idx_hourly(gmt_create)`
+
 ## Roadmap
 
 详细扩展计划见 [docs/ROADMAP.md](docs/ROADMAP.md)，涵盖三个阶段：
 
 - **Phase 1** — 核心能力补全 ✅（LLM 接入、用户权限体系、模板变量引擎）
-- **Phase 2** — 体验提升（数据面板、多媒体、群管命令、Webhook）
+- **Phase 2** — 体验提升 ✅ 数据面板已完成；多媒体、群管命令、Webhook 待做
 - **Phase 3** — 产品化扩展（Mini App、深度链接、RSS 聚合、分布式改造）
 
 ## License

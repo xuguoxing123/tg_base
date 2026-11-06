@@ -137,7 +137,7 @@ CREATE TABLE cs_telegram_user (
 
 ## Phase 2 — 体验与运营提升
 
-### 2.1 数据统计面板
+### ✅ 2.1 数据统计面板
 
 **目标：** 在 admin.html 增加 Dashboard，可视化展示运营数据。
 

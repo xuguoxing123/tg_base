@@ -61,3 +61,18 @@ CREATE TABLE IF NOT EXISTS cs_bot_broadcast_task (
     gmt_modified    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted         TINYINT DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Phase 2.1: 消息日志表（数据统计用）
+-- 记录每条经过命令分发的消息，用于统计面板图表渲染
+CREATE TABLE IF NOT EXISTS cs_bot_message_log (
+    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id         BIGINT NOT NULL COMMENT 'Telegram 用户ID',
+    chat_id         BIGINT NOT NULL COMMENT '会话/群 ID',
+    command_name    VARCHAR(64) DEFAULT NULL COMMENT '命令名或关键词，非命令消息为 NULL',
+    handler_type    VARCHAR(32) DEFAULT NULL COMMENT '处理器类型简名',
+    success         TINYINT DEFAULT 1 COMMENT '处理结果 1=成功 0=失败',
+    gmt_create      DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '消息时间戳',
+    INDEX idx_user_date (user_id, gmt_create),
+    INDEX idx_command (command_name),
+    INDEX idx_hourly (gmt_create)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

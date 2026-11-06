@@ -8,6 +8,7 @@ import com.example.telegram.command.KeywordRule;
 import com.example.telegram.command.TemplateRenderer;
 import com.example.telegram.command.WelcomeRule;
 import com.example.telegram.config.TelegramBotProperties;
+import com.example.telegram.service.StatsService;
 import com.example.telegram.service.TelegramApiService;
 import com.example.telegram.service.TelegramUserService;
 import org.slf4j.Logger;
@@ -47,6 +48,7 @@ public class TelegramBot extends TelegramLongPollingBot {
     private final CommandRegistry registry;
     private final RateLimiter rateLimiter;
     private final TelegramUserService userService;
+    private final StatsService statsService;
     private final Map<String, CallbackQueryHandler> callbackHandlers = new HashMap<>();
 
     /** 按 chatId 哈希分片的单线程工作池组，保证同一会话消息有序 */
@@ -58,6 +60,7 @@ public class TelegramBot extends TelegramLongPollingBot {
                        CommandRegistry registry,
                        RateLimiter rateLimiter,
                        TelegramUserService userService,
+                       StatsService statsService,
                        List<CallbackQueryHandler> callbackHandlerList,
                        @Value("${telegram.worker-pool-size:4}") int poolSize,
                        @Value("${telegram.worker-queue-capacity:200}") int queueCapacity) {
@@ -67,6 +70,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         this.registry = registry;
         this.rateLimiter = rateLimiter;
         this.userService = userService;
+        this.statsService = statsService;
 
         for (CallbackQueryHandler handler : callbackHandlerList) {
             callbackHandlers.put(handler.data(), handler);
@@ -224,13 +228,17 @@ public class TelegramBot extends TelegramLongPollingBot {
         if (handler != null) {
             CommandContext context = new CommandContext(chatId, userId, text, role, false);
             String handlerName = handler.getClass().getSimpleName();
+            String cmdName = isCommand ? text.substring(1).split("[@\\s]", 2)[0] : null;
             long start = System.nanoTime();
             boolean success = false;
             log.info("开始执行处理器: {}, 参数: {}", handlerName, context);
             try {
                 success = handler.handle(context);
             } finally {
-                log.info("处理器执行结束: {}, 成功: {}, 耗时: {}ms", handlerName, success, elapsedMs(start));
+                long elapsed = elapsedMs(start);
+                log.info("处理器执行结束: {}, 成功: {}, 耗时: {}ms", handlerName, success, elapsed);
+                // 异步记录消息日志（不阻塞主流程）
+                statsService.logMessage(userId, chatId, cmdName, handlerName, success);
             }
         }
     }
@@ -244,10 +252,12 @@ public class TelegramBot extends TelegramLongPollingBot {
         // 渲染模板变量
         CommandContext ctx = new CommandContext(chatId, userId, matchedText);
         String content = TemplateRenderer.render(rule.content(), ctx);
+        boolean success;
         switch (rule.replyType()) {
-            case "photo" -> apiService.sendPhoto(chatId, content, content);
-            default -> apiService.sendText(chatId, content, rule.parseMode());
+            case "photo" -> success = apiService.sendPhoto(chatId, content, content).isPresent();
+            default -> success = apiService.sendText(chatId, content, rule.parseMode()).isPresent();
         }
+        statsService.logMessage(userId, chatId, rule.keyword(), "KeywordMatch", success);
     }
 
     private void dispatchCallback(CallbackQuery callbackQuery) {

@@ -2,7 +2,8 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
-<title>Bot 指令管理</title>
+<title>Bot 管理后台</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f7fa; padding: 20px; }
@@ -36,6 +37,10 @@ tr:hover { background: #f0f7ff; }
 .tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 2px solid #e4e7ed; }
 .tab-btn { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 15px; color: #606266; border-bottom: 2px solid transparent; margin-bottom: -2px; }
 .tab-btn.active { color: #409eff; border-bottom-color: #409eff; font-weight: 600; }
+.chart-row { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.chart-box { background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.08); padding: 16px; min-width: 280px; flex: 1; }
+.chart-box h3 { font-size: 14px; color: #606266; margin-bottom: 8px; }
+.chart-container { width: 100%; height: 260px; }
 </style>
 </head>
 <body>
@@ -45,6 +50,7 @@ tr:hover { background: #f0f7ff; }
     <button class="tab-btn active" id="tabCmd" onclick="switchTab('cmd')">指令管理</button>
     <button class="tab-btn" id="tabTask" onclick="switchTab('task')">定时任务</button>
     <button class="tab-btn" id="tabUser" onclick="switchTab('user')">用户管理</button>
+    <button class="tab-btn" id="tabDash" onclick="switchTab('dash')">数据面板</button>
 </div>
 
 <div id="cmdView">
@@ -90,6 +96,17 @@ tr:hover { background: #f0f7ff; }
     <thead><tr><th>ID</th><th>Telegram ID</th><th>用户名</th><th>姓名</th><th>角色</th><th>消息数</th><th>最后活跃</th><th>状态</th><th>操作</th></tr></thead>
     <tbody id="userList"></tbody>
 </table>
+</div>
+
+<div id="dashView" style="display:none">
+    <div class="chart-row">
+        <div class="chart-box"><h3>命令使用频率 Top 10（最近 7 天）</h3><div class="chart-container" id="chartCommands"></div></div>
+        <div class="chart-box"><h3>日活用户趋势（最近 30 天）</h3><div class="chart-container" id="chartDailyActive"></div></div>
+    </div>
+    <div class="chart-row">
+        <div class="chart-box"><h3>今日每小时消息量分布</h3><div class="chart-container" id="chartHourly"></div></div>
+        <div class="chart-box"><h3>广播任务执行成功率</h3><div class="chart-container" id="chartBroadcast"></div></div>
+    </div>
 </div>
 
 <!-- Modal -->
@@ -174,10 +191,11 @@ tr:hover { background: #f0f7ff; }
 const API = 'http://localhost:8080/api/commands';
 const TASK_API = 'http://localhost:8080/api/broadcast-tasks';
 const USER_API = 'http://localhost:8080/api/users';
+const STATS_API = 'http://localhost:8080/api/stats';
 
 function switchTab(which) {
-    const views = ['cmd', 'task', 'user'];
-    const tabs = { cmd: 'tabCmd', task: 'tabTask', user: 'tabUser' };
+    const views = ['cmd', 'task', 'user', 'dash'];
+    const tabs = { cmd: 'tabCmd', task: 'tabTask', user: 'tabUser', dash: 'tabDash' };
     views.forEach(v => {
         document.getElementById(v + 'View').style.display = v === which ? '' : 'none';
         const tabEl = document.getElementById(tabs[v]);
@@ -186,6 +204,7 @@ function switchTab(which) {
     });
     if (which === 'task') fetchTaskList();
     if (which === 'user') fetchUserList();
+    if (which === 'dash') loadDashboard();
 }
 
 async function fetchList() {
@@ -461,6 +480,64 @@ async function toggleUserStatus(id, status) {
 }
 
 fetchList();
+
+// === Dashboard Charts ===
+async function loadDashboard() {
+    try {
+        const [cmds, daily, hourly, broadcast] = await Promise.all([
+            fetch(STATS_API + '/commands?limit=10').then(r => r.json()),
+            fetch(STATS_API + '/daily-active?days=30').then(r => r.json()),
+            fetch(STATS_API + '/hourly-volume').then(r => r.json()),
+            fetch(STATS_API + '/broadcast').then(r => r.json())
+        ]);
+        renderCommandsChart(cmds);
+        renderDailyActiveChart(daily);
+        renderHourlyChart(hourly);
+        renderBroadcastChart(broadcast);
+    } catch (e) {
+        console.error('Dashboard load failed:', e);
+    }
+}
+
+function renderCommandsChart(data) {
+    const chart = echarts.init(document.getElementById('chartCommands'));
+    chart.setOption({
+        tooltip: {}, xAxis: { type: 'category', data: data.map(d => d.name), axisLabel: { rotate: 30 } },
+        yAxis: { type: 'value' }, series: [{ type: 'bar', data: data.map(d => d.count), itemStyle: { color: '#409eff' } }]
+    });
+}
+
+function renderDailyActiveChart(data) {
+    const chart = echarts.init(document.getElementById('chartDailyActive'));
+    chart.setOption({
+        tooltip: { trigger: 'axis' }, xAxis: { type: 'category', data: data.map(d => String(d.date)) },
+        yAxis: { type: 'value' }, series: [{ type: 'line', smooth: true, data: data.map(d => d.activeUsers), areaStyle: { opacity: 0.15 }, itemStyle: { color: '#67c23a' } }]
+    });
+}
+
+function renderHourlyChart(data) {
+    const chart = echarts.init(document.getElementById('chartHourly'));
+    // Ensure all 24 hours present
+    const hourMap = {}; data.forEach(d => hourMap[d.hour] = d.count);
+    const hours = Array.from({length: 24}, (_, i) => i);
+    chart.setOption({
+        tooltip: { trigger: 'axis' }, xAxis: { type: 'category', data: hours.map(h => h + ':00') },
+        yAxis: { type: 'value' }, series: [{ type: 'bar', data: hours.map(h => hourMap[h] || 0), itemStyle: { color: '#e6a23c' } }]
+    });
+}
+
+function renderBroadcastChart(data) {
+    const chart = echarts.init(document.getElementById('chartBroadcast'));
+    if (!data || !data.total) { chart.setOption({ title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { fontSize: 14, color: '#909399' } } }); return; }
+    const ok = Number(data.ok || 0); const fail = Number(data.total) - ok;
+    chart.setOption({
+        tooltip: { formatter: '{b}: {c}' }, legend: { bottom: 0 },
+        series: [{ type: 'pie', radius: ['40%', '70%'], data: [
+            { value: ok, name: '成功', itemStyle: { color: '#67c23a' } },
+            { value: fail, name: '失败', itemStyle: { color: '#f56c6c' } }
+        ], label: { formatter: '{b}\n{d}%' } }]
+    });
+}
 </script>
 </body>
 </html>
