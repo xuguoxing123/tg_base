@@ -24,6 +24,24 @@ CREATE TABLE IF NOT EXISTS cs_bot_command (
     deleted         TINYINT DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Phase 3: 用户管理表
+-- 记录与 Bot 交互过的 Telegram 用户，支持角色分级 + 黑名单封禁
+CREATE TABLE IF NOT EXISTS cs_telegram_user (
+    id               BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id          BIGINT NOT NULL UNIQUE COMMENT 'Telegram 用户ID（全局唯一且永不变）',
+    username         VARCHAR(64) COMMENT '@username',
+    first_name       VARCHAR(64),
+    last_name        VARCHAR(64),
+    role             VARCHAR(16) DEFAULT 'USER' COMMENT 'ADMIN / USER',
+    status           TINYINT DEFAULT 1 COMMENT '1=正常 0=黑名单',
+    first_seen_time  DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '首次交互时间',
+    last_active_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最近活跃时间',
+    message_count    INT DEFAULT 0 COMMENT '累计消息数',
+    deleted          TINYINT DEFAULT 0,
+    gmt_create       DATETIME DEFAULT CURRENT_TIMESTAMP,
+    gmt_modified     DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Phase 2: 定时任务配置表
 -- 运营配置“目标群 + cron 表达式 + 回复内容”，调度器按周期自动推送
 CREATE TABLE IF NOT EXISTS cs_bot_broadcast_task (

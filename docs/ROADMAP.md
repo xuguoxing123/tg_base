@@ -84,23 +84,24 @@ CREATE TABLE cs_telegram_user (
 ```
 
 **具体任务：**
-- [ ] 建表 `cs_telegram_user`
-- [ ] 新建 `TelegramUserEntity`、`TelegramUserMapper`、`TelegramUserService`
-- [ ] 在 `TelegramBot.processUpdate()` 中每次交互自动 upsert 用户信息
-- [ ] `CommandContext` 增加 `role` / `isBlocked` 字段
-- [ ] `CommandRegistry` 分发前检查用户状态：黑名单用户直接忽略
-- [ ] admin.html 新增「用户管理」Tab：列表查询、角色切换、封禁/解封
-- [ ] REST API `/api/users` 分页查询 + PATCH 修改角色/状态
+- [x] 建表 `cs_telegram_user`
+- [x] 新建 `TelegramUserEntity`、`TelegramUserMapper`、`TelegramUserService`
+- [x] 在 `TelegramBot.processUpdate()` 中每次交互自动 upsert 用户信息
+- [x] `CommandContext` 增加 `role` / `isBlocked` 字段
+- [x] `CommandRegistry` 分发前检查用户状态：黑名单用户直接忽略
+- [x] admin.html 新增「用户管理」Tab：列表查询、角色切换、封禁/解封
+- [x] REST API `/api/users` 分页查询 + PATCH 修改角色/状态
 
 **涉及文件：**
-- 新建 `entity/TelegramUserEntity.java`
-- 新建 `mapper/TelegramUserMapper.java`
-- 新建 `service/TelegramUserService.java`
-- 新建 `controller/TelegramUserController.java`
-- 修改 `bot/TelegramBot.java` — 用户记录逻辑
-- 修改 `command/CommandContext.java` — 增加角色字段
-- 修改 `command/CommandRegistry.java` — 权限前置检查
-- 修改 `resources/static/admin.html` — 用户管理 Tab
+- 新建 `entity/TelegramUserEntity.java` ✅
+- 新建 `mapper/TelegramUserMapper.java` ✅ (含 UPSERT SQL)
+- 新建 `service/TelegramUserService.java` ✅
+- 新建 `controller/TelegramUserController.java` ✅
+- 新建 `dto/TelegramUserVO.java` ✅
+- 修改 `bot/TelegramBot.java` — 用户记录 + 黑名单检查 ✅
+- 修改 `command/CommandContext.java` — 增加 role/blocked 字段 ✅
+- 修改 `resources/db/schema.sql` — 新增 cs_telegram_user 表 ✅
+- 修改 `resources/static/admin.html` — 用户管理 Tab ✅
 
 ---
 

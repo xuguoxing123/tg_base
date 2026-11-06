@@ -44,6 +44,7 @@ tr:hover { background: #f0f7ff; }
 <div class="tabs">
     <button class="tab-btn active" id="tabCmd" onclick="switchTab('cmd')">指令管理</button>
     <button class="tab-btn" id="tabTask" onclick="switchTab('task')">定时任务</button>
+    <button class="tab-btn" id="tabUser" onclick="switchTab('user')">用户管理</button>
 </div>
 
 <div id="cmdView">
@@ -66,6 +67,28 @@ tr:hover { background: #f0f7ff; }
 <table>
     <thead><tr><th>ID</th><th>名称</th><th>目标chatId</th><th>Cron</th><th>类型</th><th>内容摘要</th><th>下次执行</th><th>状态</th><th>操作</th></tr></thead>
     <tbody id="taskList"></tbody>
+</table>
+</div>
+
+<div id="userView" style="display:none">
+<div class="toolbar" style="align-items:center; gap:12px; flex-wrap:wrap;">
+    <label>角色筛选:</label>
+    <select id="userRoleFilter" onchange="fetchUserList()" style="padding:6px;border:1px solid #dcdfe6;border-radius:4px;">
+        <option value="">全部</option>
+        <option value="ADMIN">ADMIN</option>
+        <option value="USER">USER</option>
+    </select>
+    <label>状态:</label>
+    <select id="userStatusFilter" onchange="fetchUserList()" style="padding:6px;border:1px solid #dcdfe6;border-radius:4px;">
+        <option value="">全部</option>
+        <option value="1">正常</option>
+        <option value="0">黑名单</option>
+    </select>
+</div>
+
+<table>
+    <thead><tr><th>ID</th><th>Telegram ID</th><th>用户名</th><th>姓名</th><th>角色</th><th>消息数</th><th>最后活跃</th><th>状态</th><th>操作</th></tr></thead>
+    <tbody id="userList"></tbody>
 </table>
 </div>
 
@@ -148,20 +171,19 @@ tr:hover { background: #f0f7ff; }
 <script>
 const API = 'http://localhost:8080/api/commands';
 const TASK_API = 'http://localhost:8080/api/broadcast-tasks';
+const USER_API = 'http://localhost:8080/api/users';
 
 function switchTab(which) {
-    const cmdView = document.getElementById('cmdView');
-    const taskView = document.getElementById('taskView');
-    const tabCmd = document.getElementById('tabCmd');
-    const tabTask = document.getElementById('tabTask');
-    if (which === 'cmd') {
-        cmdView.style.display = ''; taskView.style.display = 'none';
-        tabCmd.classList.add('active'); tabTask.classList.remove('active');
-    } else {
-        cmdView.style.display = 'none'; taskView.style.display = '';
-        tabCmd.classList.remove('active'); tabTask.classList.add('active');
-        fetchTaskList();
-    }
+    const views = ['cmd', 'task', 'user'];
+    const tabs = { cmd: 'tabCmd', task: 'tabTask', user: 'tabUser' };
+    views.forEach(v => {
+        document.getElementById(v + 'View').style.display = v === which ? '' : 'none';
+        const tabEl = document.getElementById(tabs[v]);
+        if (v === which) tabEl.classList.add('active');
+        else tabEl.classList.remove('active');
+    });
+    if (which === 'task') fetchTaskList();
+    if (which === 'user') fetchUserList();
 }
 
 async function fetchList() {
@@ -389,6 +411,51 @@ async function delTask(id) {
     if (!confirm('确定删除该定时任务？')) return;
     await fetch(`${TASK_API}/${id}`, { method: 'DELETE' });
     fetchTaskList();
+}
+
+// ===== 用户管理 =====
+async function fetchUserList() {
+    const role = document.getElementById('userRoleFilter').value;
+    const status = document.getElementById('userStatusFilter').value;
+    let url = USER_API + '?page=1&size=200';
+    if (role) url += '&role=' + role;
+    if (status) url += '&status=' + status;
+    const res = await fetch(url);
+    const data = await res.json();
+    const tbody = document.getElementById('userList');
+    tbody.innerHTML = (data.records || []).map(r => `<tr>
+        <td>${r.id}</td>
+        <td><code>${r.userId}</code></td>
+        <td>${r.username ? '@' + r.username : '-'}</td>
+        <td>${(r.firstName || '') + ' ' + (r.lastName || '') || '-'}</td>
+        <td><strong>${r.role}</strong></td>
+        <td>${r.messageCount}</td>
+        <td>${r.lastActiveTime ? String(r.lastActiveTime).replace('T',' ').substring(0,19) : '-'}</td>
+        <td class="${r.status===1?'status-on':'status-off'}">${r.status===1?'正常':'黑名单'}</td>
+        <td>
+            <button class="btn-info" onclick="changeUserRole(${r.id},'${r.role==='ADMIN'?'USER':'ADMIN'}')" style="font-size:12px;padding:4px 8px;">
+                ${r.role==='ADMIN'?'降为用户':'设为管理员'}
+            </button>
+            <button class="${r.status===1?'btn-danger':'btn-success'}" onclick="toggleUserStatus(${r.id},${r.status===1?0:1})" style="font-size:12px;padding:4px 8px;">
+                ${r.status===1?'封禁':'解封'}
+            </button>
+        </td>
+    </tr>`).join('');
+}
+
+async function changeUserRole(id, role) {
+    if (!confirm('确定切换角色为 ' + role + '？')) return;
+    await fetch(`${USER_API}/${id}/role`, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({role}) });
+    showToast('角色已更新', 'success');
+    fetchUserList();
+}
+
+async function toggleUserStatus(id, status) {
+    const label = status === 1 ? '解封' : '封禁';
+    if (!confirm('确定' + label + '该用户？')) return;
+    await fetch(`${USER_API}/${id}/status`, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({status}) });
+    showToast(label + '成功', 'success');
+    fetchUserList();
 }
 
 fetchList();

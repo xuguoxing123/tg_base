@@ -8,6 +8,7 @@ import com.example.telegram.command.KeywordRule;
 import com.example.telegram.command.WelcomeRule;
 import com.example.telegram.config.TelegramBotProperties;
 import com.example.telegram.service.TelegramApiService;
+import com.example.telegram.service.TelegramUserService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -44,6 +45,7 @@ public class TelegramBot extends TelegramLongPollingBot {
     private final TelegramApiService apiService;
     private final CommandRegistry registry;
     private final RateLimiter rateLimiter;
+    private final TelegramUserService userService;
     private final Map<String, CallbackQueryHandler> callbackHandlers = new HashMap<>();
 
     /** 按 chatId 哈希分片的单线程工作池组，保证同一会话消息有序 */
@@ -54,6 +56,7 @@ public class TelegramBot extends TelegramLongPollingBot {
                        TelegramApiService apiService,
                        CommandRegistry registry,
                        RateLimiter rateLimiter,
+                       TelegramUserService userService,
                        List<CallbackQueryHandler> callbackHandlerList,
                        @Value("${telegram.worker-pool-size:4}") int poolSize,
                        @Value("${telegram.worker-queue-capacity:200}") int queueCapacity) {
@@ -62,6 +65,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         this.apiService = apiService;
         this.registry = registry;
         this.rateLimiter = rateLimiter;
+        this.userService = userService;
 
         for (CallbackQueryHandler handler : callbackHandlerList) {
             callbackHandlers.put(handler.data(), handler);
@@ -177,9 +181,25 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     private void dispatchMessage(Update update) {
-        long chatId = update.getMessage().getChatId();
-        long userId = update.getMessage().getFrom() != null ? update.getMessage().getFrom().getId() : 0L;
-        String text = update.getMessage().getText();
+        Message msg = update.getMessage();
+        long chatId = msg.getChatId();
+        User from = msg.getFrom();
+        long userId = from != null ? from.getId() : 0L;
+        String text = msg.getText();
+
+        // 自动 upsert 用户信息（记录活跃时间、累计消息数）
+        if (from != null && userId > 0) {
+            userService.recordInteraction(userId, from.getUserName(), from.getFirstName(), from.getLastName());
+        }
+
+        // 黑名单检查：封禁用户直接忽略
+        if (userId > 0 && userService.isBlocked(userId)) {
+            log.info("黑名单用户消息已忽略: userId={}, chatId={}", userId, chatId);
+            return;
+        }
+
+        // 获取用户角色
+        String role = userId > 0 ? userService.getRole(userId) : "USER";
 
         BotCommandHandler handler = null;
         boolean isCommand = text.startsWith("/");
@@ -202,7 +222,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
 
         if (handler != null) {
-            CommandContext context = new CommandContext(chatId, userId, text);
+            CommandContext context = new CommandContext(chatId, userId, text, role, false);
             String handlerName = handler.getClass().getSimpleName();
             long start = System.nanoTime();
             boolean success = false;
