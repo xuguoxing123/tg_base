@@ -40,11 +40,13 @@ public class DynamicCommandHandler implements BotCommandHandler {
     @Override
     public boolean handle(CommandContext context) {
         String parseMode = definition.parseMode();
+        // 渲染模板变量（{{date}}、{{time}}、{{random:1-100}} 等）
+        String content = TemplateRenderer.render(definition.replyContent(), context);
         return switch (definition.replyType()) {
-            case "text" -> apiService.sendText(context.chatId(), definition.replyContent(), parseMode).isPresent();
-            case "photo" -> apiService.sendPhoto(context.chatId(), definition.replyContent(), definition.replyContent()).isPresent();
-            case "buttons" -> handleButtons(context, parseMode);
-            case "keyboard" -> handleKeyboard(context, parseMode);
+            case "text" -> apiService.sendText(context.chatId(), content, parseMode).isPresent();
+            case "photo" -> apiService.sendPhoto(context.chatId(), content, content).isPresent();
+            case "buttons" -> handleButtons(context, parseMode, content);
+            case "keyboard" -> handleKeyboard(context, parseMode, content);
             default -> {
                 log.warn("未知的 replyType: {}, command: {}", definition.replyType(), definition.name());
                 yield false;
@@ -52,10 +54,10 @@ public class DynamicCommandHandler implements BotCommandHandler {
         };
     }
 
-    private boolean handleButtons(CommandContext context, String parseMode) {
+    private boolean handleButtons(CommandContext context, String parseMode, String content) {
         try {
             InlineKeyboardMarkup markup = parseMarkup(definition.replyMarkup());
-            return apiService.sendText(context.chatId(), definition.replyContent(), parseMode, markup).isPresent();
+            return apiService.sendText(context.chatId(), content, parseMode, markup).isPresent();
         } catch (Exception e) {
             log.error("解析按钮配置失败, command: {}", definition.name(), e);
             return false;
@@ -68,10 +70,10 @@ public class DynamicCommandHandler implements BotCommandHandler {
      *
      * JSON 格式: [["北京","上海"],["广州","深圳"]]
      */
-    private boolean handleKeyboard(CommandContext context, String parseMode) {
+    private boolean handleKeyboard(CommandContext context, String parseMode, String content) {
         try {
             ReplyKeyboardMarkup keyboard = parseReplyKeyboard(definition.replyMarkup());
-            return apiService.sendTextWithKeyboard(context.chatId(), definition.replyContent(), parseMode, keyboard).isPresent();
+            return apiService.sendTextWithKeyboard(context.chatId(), content, parseMode, keyboard).isPresent();
         } catch (Exception e) {
             log.error("解析键盘配置失败, command: {}", definition.name(), e);
             return false;

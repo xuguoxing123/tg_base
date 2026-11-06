@@ -11,18 +11,22 @@
 - ⌨️ ReplyKeyboard 自定义键盘（点击即发送文字，可路由到任意命令）
 - 🔑 关键词自动回复（非命令文本包含触发词时自动响应）
 - 🎉 入群欢迎语（监听新成员加入事件，支持 `{user}` / `{chat}` 占位符）
-- 🤖 AI 对话兜底 — 无法匹配时自动调用 LLM/配置文本回复（接口已预留，可随时接入）
+- 🧠 AI 对话兜底 — 接入通义千问 LLM，支持多轮对话上下文 + 自动降级静态文本
+- 👥 用户管理与权限体系 — 自动记录活跃用户，ADMIN/USER 分级，黑名单封禁
+- 📐 消息模板变量引擎 — 回复内容支持 {{date}}/{{time}}/{{random:min-max}} 等动态替换
 - ⏰ 定时任务推送 — 运营配置“目标群 + cron + 内容”，调度器按周期自动发送
 - 🛡️ 滑动窗口限流防刷，有界队列防止 OOM
 - 🗄️ MySQL 持久化 + MyBatis-Plus 逻辑删除
-- 🖥️ 自带管理后台页面（admin.html）
+- 🖥️ 自带管理后台页面（admin.html，含指令/任务/用户三个 Tab）
 
 ## Tech Stack
 
 | Category | Technology | Version |
-|----------|-----------|---------|
+|----------|-----------|----------|
 | Language | Java | 17 |
 | Framework | Spring Boot | 3.5.0 |
+| AI Framework | Spring AI Alibaba | 1.0.0.2 |
+| LLM | DashScope (通义千问) | qwen-plus |
 | ORM | MyBatis-Plus | 3.5.9 |
 | Database | MySQL | 8.0 |
 | Bot SDK | telegrambots | 6.8.0 |
@@ -36,6 +40,7 @@
 - Maven 3.6+ (or use the bundled `mvnw`)
 - MySQL 5.7+ / 8.0
 - HTTP 代理（国内访问 Telegram 必需）
+- DashScope API Key（可选，用于 AI 对话兜底）
 
 ### 1. 配置环境变量
 
@@ -43,6 +48,7 @@
 $env:TELEGRAM_BOT_TOKEN = "你的BotToken"        # 从 @BotFather 获取
 $env:TELEGRAM_PROXY_PORT = "7890"               # 本地代理端口
 $env:MYSQL_PASSWORD = "你的MySQL密码"
+$env:DASHSCOPE_API_KEY = "你的通义千问APIKey"   # 可选，从 https://dashscope.console.aliyun.com/ 获取
 ```
 
 ### 2. 初始化数据库
@@ -81,25 +87,40 @@ telegram/
 │   │   └── NoCallbackHandler.java
 │   ├── command/                          # 命令系统核心
 │   │   ├── BotCommandHandler.java        # 处理器接口
-│   │   ├── CommandContext.java           # 上下文
-│   │   ├── CommandDefinition.java        # 动态命令定义
+│   │   ├── CommandContext.java           # 上下文（含 role/blocked）
+│   │   ├── CommandDefinition.java        # 动态命令定义（含 systemPrompt）
 │   │   ├── CommandRegistry.java          # 注册表（内置+DB合并）
 │   │   ├── DynamicCommandHandler.java    # 通用动态处理器
+│   │   ├── TemplateRenderer.java         # 消息模板变量渲染引擎
 │   │   └── impl/                         # 内置命令实现
 │   ├── config/                           # 配置类
 │   ├── controller/                       # REST API
+│   │   ├── BotCommandController.java     # 指令管理
+│   │   ├── BroadcastTaskController.java  # 广播任务
+│   │   └── TelegramUserController.java   # 用户管理
 │   ├── dto/                              # 请求/响应对象
 │   ├── entity/                           # 数据库实体
+│   │   ├── BotCommandEntity.java
+│   │   ├── BroadcastTaskEntity.java
+│   │   └── TelegramUserEntity.java       # 用户实体
 │   ├── mapper/                           # MyBatis Mapper
+│   │   ├── BotCommandMapper.java
+│   │   ├── BroadcastTaskMapper.java
+│   │   └── TelegramUserMapper.java       # 用户 UPSERT
 │   └── service/                          # 业务 & API 封装
+│       ├── TelegramUserService.java      # 用户管理服务
 │       └── ai/                           # AI 对话补全服务
-│           ├── ChatCompletionService.java       # AI 能力抽象接口
-│           └── DefaultChatCompletionService.java # 默认实现（静态文本）
+│           ├── ChatCompletionService.java        # AI 能力抽象接口
+│           ├── DefaultChatCompletionService.java # 默认实现（静态文本降级）
+│           ├── QwenChatCompletionService.java    # 通义千问 LLM 实现 (@Primary)
+│           └── ChatMemoryManager.java            # 多轮对话上下文管理
 ├── src/main/resources/
 │   ├── application.properties
 │   ├── logback-spring.xml
 │   ├── db/schema.sql
 │   └── static/admin.html
+├── docs/
+│   └── ROADMAP.md                        # 扩展路线图
 └── pom.xml
 ```
 
@@ -116,23 +137,28 @@ TelegramBot.onUpdateReceived()
       │
       ▼
 processUpdate()
-      ├── new_chat_members → dispatchWelcome()  (入群欢迎语)
+      ├── new_chat_members → dispatchWelcome()  (入群欢迎语 + TemplateRenderer)
       │
       ├── 文本消息 → dispatchMessage()
+      │                 ├── userService.recordInteraction()  (用户 upsert)
+      │                 ├── userService.isBlocked()?         (黑名单拦截)
+      │                 ├── userService.getRole()            (角色注入)
+      │                 │
       │                 ├── "/" 开头 → CommandRegistry.lookup()
       │                 │                  ├── 内置处理器
       │                 │                  ├── DB 动态命令
-      │                 │                  │    ├── text (+ parseMode)
+      │                 │                  │    ├── text (+ parseMode + TemplateRenderer)
       │                 │                  │    ├── photo
       │                 │                  │    ├── buttons (InlineKeyboardMarkup)
       │                 │                  │    └── keyboard (ReplyKeyboardMarkup)
       │                 │                  └── fallback 兜底
       │                 └── 普通文本 → 关键词匹配 → AI Fallback
-      │                       ├── triggerKeywords 命中 → 自动回复
+      │                       ├── triggerKeywords 命中 → TemplateRenderer.render() → 自动回复
       │                       └── 未命中 → AiFallbackCommandHandler
-      │                              └── ChatCompletionService.complete()
-      │                                   ├── 当前：返回配置静态文本
-      │                                   └── 未来：对接 LLM API
+      │                              └── QwenChatCompletionService (@Primary)
+      │                                   ├── ChatClient.call() → 通义千问 LLM
+      │                                   ├── ChatMemoryManager → 多轮上下文
+      │                                   └── 失败降级 → DefaultChatCompletionService
       │
       └── 按钮回调 → dispatchCallback()
                         └── CallbackQueryHandler
@@ -142,12 +168,14 @@ processUpdate()
 
 | Layer | Responsibility | Key Classes |
 |-------|---------------|-------------|
-| Bot 入口层 | Update 解析、限流、线程调度 | `TelegramBot`, `RateLimiter` |
-| 命令分发层 | 命令查找与路由 | `CommandRegistry`, `DynamicCommandHandler` |
+| Bot 入口层 | Update 解析、限流、线程调度、用户记录 | `TelegramBot`, `RateLimiter` |
+| 命令分发层 | 命令查找与路由、黑名单拦截、权限检查 | `CommandRegistry`, `DynamicCommandHandler` |
 | 处理器层 | 业务逻辑实现 | `*CommandHandler`, `*CallbackHandler` |
-| AI 服务层 | 对话补全抽象与实现 | `ChatCompletionService`, `DefaultChatCompletionService` |
+| AI 服务层 | LLM 对话补全、多轮上下文、降级策略 | `ChatCompletionService`, `QwenChatCompletionService`, `ChatMemoryManager` |
+| 模板引擎层 | 消息变量替换渲染 | `TemplateRenderer` |
+| 用户管理层 | 用户 upsert、角色分级、封禁 | `TelegramUserService`, `TelegramUserController` |
 | 服务封装层 | Telegram API 统一出口 | `TelegramApiService` |
-| 管理后台层 | 命令 CRUD + 热刷新 | `BotCommandController`, `BotCommandService` |
+| 管理后台层 | 命令 CRUD + 热刷新 + 用户管理 | `BotCommandController`, `BotCommandService` |
 
 ## Dynamic Commands
 
@@ -240,6 +268,74 @@ welcomeText = "欢迎 {user} 加入 {chat}！请先看 /help"
 
 > 目标群 `chat_id` 可从 Telegram 消息日志获取（群聊 ID 通常为负数）。需确保 Bot 已被拉入目标群且有发言权限。
 
+## AI LLM 对话 (通义千问)
+
+通过 Spring AI Alibaba 接入 DashScope 通义千问大模型，作为 AI 兜底的核心引擎。
+
+**工作流程：**
+1. 用户发送非命令文本且关键词未命中时，触发 `AiFallbackCommandHandler`
+2. `QwenChatCompletionService` (@Primary) 调用 `ChatClient` → 通义千问 API
+3. `ChatMemoryManager` 按 userId 维护最近 N 轮对话历史，提供多轮上下文
+4. LLM 不可用或调用失败时，自动降级到 `DefaultChatCompletionService` 静态文本
+
+**每个命令可配置独立 System Prompt：**
+在 `cs_bot_command` 表的 `system_prompt` 字段设置后，该命令触发的 AI 回复会使用自定义提示词而非全局默认。
+
+**环境变量：**
+```powershell
+$env:DASHSCOPE_API_KEY = "你的通义千问 API Key"   # 从 https://dashscope.console.aliyun.com/ 获取
+```
+
+> 未配置 API Key 时 Bot 仍可正常启动，所有 AI 兜底自动走静态文本降级。
+
+## User Management（用户管理与权限体系）
+
+Bot 自动记录与其交互的所有 Telegram 用户，支持角色分级和黑名单封禁。
+
+**核心机制：**
+- 每次消息交互自动 UPSERT 用户信息（username、first_name、累计消息数、最后活跃时间）
+- 黑名单用户（status=0）的消息直接忽略，不进入命令分发
+- `CommandContext` 携带 role 和 blocked 字段，处理器可做细粒度权限控制
+
+**角色说明：**
+
+| 角色 | 权限 |
+|------|------|
+| `ADMIN` | 可使用管理类命令（如群管操作） |
+| `USER` | 普通用户，仅可使用公共命令 |
+
+**API：**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/users?page=1&size=50` | 分页查询用户列表 |
+| PATCH | `/api/users/{id}/role` | 切换角色 (ADMIN/USER) |
+| PATCH | `/api/users/{id}/status` | 封禁/解封 (status: 1/0) |
+
+## Template Variables（消息模板变量引擎）
+
+运营配置的回复内容支持动态变量替换，发送前由 `TemplateRenderer` 渲染。
+
+**支持的变量：**
+
+| 变量 | 替换为 | 示例输出 |
+|------|-------|----------|
+| `{{date}}` | 当前日期 | `2026-11-06` |
+| `{{time}}` | 当前时间 | `14:30:00` |
+| `{{random:min-max}}` | 范围内随机整数 | `{{random:1000-9999}}` → `4521` |
+| `{{username}}` | 用户 @username | `zhangsan` |
+| `{{chat_title}}` | 群聊标题 | `我的群` |
+
+**使用示例：**
+```
+📅 今天是 {{date}}，当前时间 {{time}}
+🎲 幸运号码：{{random:1000-9999}}
+```
+
+入群欢迎语同时兼容旧语法 `{user}` / `{chat}` 和新模板变量语法。
+
+> 模板变量在所有回复类型中生效：text、photo、buttons、keyboard，以及关键词自动回复。
+
 ## Built-in Commands
 
 | Command | Handler | Description |
@@ -285,6 +381,7 @@ welcomeText = "欢迎 {user} 加入 {chat}！请先看 /help"
 | `TELEGRAM_PROXY_HOST` | `127.0.0.1` | HTTP 代理地址 |
 | `TELEGRAM_PROXY_PORT` | `7890` | 代理端口（设 0 禁用） |
 | `TELEGRAM_LONG_POLL_TIMEOUT` | `25` | 长轮询超时秒数 |
+| `DASHSCOPE_API_KEY` | *(空)* | 通义千问 API Key（选填，未配置则走静态降级） |
 | `DATABASE_HOST` | `localhost` | MySQL 主机 |
 | `MYSQL_PASSWORD` | *(空)* | MySQL 密码 |
 
@@ -299,8 +396,13 @@ server.port=8080                         # Web 端口
 
 # ===== AI Fallback =====
 telegram.ai.fallback.enabled=true        # 启用开关
-telegram.ai.fallback.reply-text=抱歉…    # 默认回复文本（后续接入 LLM 后可留空）
+telegram.ai.fallback.reply-text=抱歉…    # LLM 不可用时的降级文本
 telegram.ai.fallback.parse-mode=         # 回复格式化模式（空/MarkdownV2/HTML）
+
+# ===== DashScope LLM =====
+spring.ai.dashscope.api-key=${DASHSCOPE_API_KEY:}
+spring.ai.dashscope.chat.options.model=qwen-plus                # 模型选择
+telegram.ai.chat-memory.max-rounds=10                           # 多轮对话保留轮数
 
 # ===== Broadcast Tasks =====
 telegram.broadcast-task.scan-cron=0 * * * * *   # 调度器扫描周期（默认每分钟）
@@ -369,6 +471,7 @@ public class QwenChatCompletionService implements ChatCompletionService {
 | `parse_mode` | VARCHAR(16) | `MarkdownV2` / `HTML` / 空 |
 | `trigger_keywords` | VARCHAR(512) | 逗号分隔触发关键词 |
 | `welcome_text` | TEXT | 入群欢迎语模板 |
+| `system_prompt` | TEXT | AI 兜底时该命令的系统提示词（覆盖全局配置） |
 | `enabled` | TINYINT | 1=启用 0=禁用 |
 | `deleted` | TINYINT | 逻辑删除标记 |
 
@@ -387,11 +490,25 @@ public class QwenChatCompletionService implements ChatCompletionService {
 | `last_exec_time` | DATETIME | 上次执行时间 |
 | `next_exec_time` | DATETIME | 下次预计执行时间 |
 
+用户表 `cs_telegram_user`：
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `user_id` | BIGINT | Telegram 用户 ID（唯一索引，UPSERT 键） |
+| `username` | VARCHAR(64) | @username |
+| `first_name` | VARCHAR(64) | 名字 |
+| `last_name` | VARCHAR(64) | 姓氏 |
+| `role` | VARCHAR(16) | ADMIN / USER |
+| `status` | TINYINT | 1=正常 0=黑名单 |
+| `first_seen_time` | DATETIME | 首次交互时间 |
+| `last_active_time` | DATETIME | 最近活跃时间 |
+| `message_count` | INT | 累计消息数 |
+
 ## Roadmap
 
 详细扩展计划见 [docs/ROADMAP.md](docs/ROADMAP.md)，涵盖三个阶段：
 
-- **Phase 1** — 核心能力补全（LLM 接入、用户权限体系、模板变量引擎）
+- **Phase 1** — 核心能力补全 ✅（LLM 接入、用户权限体系、模板变量引擎）
 - **Phase 2** — 体验提升（数据面板、多媒体、群管命令、Webhook）
 - **Phase 3** — 产品化扩展（Mini App、深度链接、RSS 聚合、分布式改造）
 

@@ -122,15 +122,16 @@ CREATE TABLE cs_telegram_user (
 | `{{count}}` | 该命令被触发总次数 |
 
 **具体任务：**
-- [ ] 新建 `TemplateRenderer` 工具类，用正则匹配 `{{xxx}}` 并替换
-- [ ] 在 `DynamicCommandHandler.handle()` 发送前调用渲染
-- [ ] 在 `TelegramBot.dispatchWelcome()` 欢迎语中也支持此语法
-- [ ] admin.html 帮助面板补充变量说明文档
+- [x] 新建 `TemplateRenderer` 工具类，用正则匹配 `{{xxx}}` 并替换
+- [x] 在 `DynamicCommandHandler.handle()` 发送前调用渲染
+- [x] 在 `TelegramBot.dispatchWelcome()` 欢迎语中也支持此语法
+- [x] 关键词回复也支持模板变量渲染
+- [x] admin.html 帮助面板补充变量说明文档
 
 **涉及文件：**
-- 新建 `command/TemplateRenderer.java`
-- 修改 `command/DynamicCommandHandler.java`
-- 修改 `bot/TelegramBot.java` — dispatchWelcome()
+- 新建 `command/TemplateRenderer.java` ✅
+- 修改 `command/DynamicCommandHandler.java` ✅ (handle/handleButtons/handleKeyboard)
+- 修改 `bot/TelegramBot.java` ✅ (dispatchWelcome + handleKeywordReply)
 
 ---
 

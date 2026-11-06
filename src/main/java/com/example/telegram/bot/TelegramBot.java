@@ -5,6 +5,7 @@ import com.example.telegram.command.BotCommandHandler;
 import com.example.telegram.command.CommandContext;
 import com.example.telegram.command.CommandRegistry;
 import com.example.telegram.command.KeywordRule;
+import com.example.telegram.command.TemplateRenderer;
 import com.example.telegram.command.WelcomeRule;
 import com.example.telegram.config.TelegramBotProperties;
 import com.example.telegram.service.TelegramApiService;
@@ -172,9 +173,8 @@ public class TelegramBot extends TelegramLongPollingBot {
             }
             if (sb.length() > 2) sb.setLength(sb.length() - 2);
 
-            String welcomeMsg = rule.welcomeText()
-                    .replace("{user}", sb.toString())
-                    .replace("{chat}", chatTitle);
+            // 使用 TemplateRenderer 统一渲染（兼容旧语法 {user}/{chat} + 新语法 {{date}}/{{time}} 等）
+            String welcomeMsg = TemplateRenderer.renderWelcome(rule.welcomeText(), sb.toString(), chatTitle);
             log.info("入群欢迎: chat={}, 新成员={}", chatId, sb);
             apiService.sendText(chatId, welcomeMsg, rule.parseMode());
         });
@@ -214,7 +214,7 @@ public class TelegramBot extends TelegramLongPollingBot {
             if (!isCommand) {
                 var kwRule = registry.lookupKeyword(text);
                 if (kwRule.isPresent()) {
-                    handleKeywordReply(chatId, text, kwRule.get());
+                    handleKeywordReply(chatId, userId, text, kwRule.get());
                     return;
                 }
             }
@@ -238,12 +238,15 @@ public class TelegramBot extends TelegramLongPollingBot {
     /**
      * 关键词匹配命中后，根据规则的 replyType 分派发送逻辑。
      */
-    private void handleKeywordReply(long chatId, String matchedText, KeywordRule rule) {
+    private void handleKeywordReply(long chatId, long userId, String matchedText, KeywordRule rule) {
         log.info("关键词命中: keyword='{}', replyType='{}', text='{}'",
                 rule.keyword(), rule.replyType(), matchedText);
+        // 渲染模板变量
+        CommandContext ctx = new CommandContext(chatId, userId, matchedText);
+        String content = TemplateRenderer.render(rule.content(), ctx);
         switch (rule.replyType()) {
-            case "photo" -> apiService.sendPhoto(chatId, rule.content(), rule.content());
-            default -> apiService.sendText(chatId, rule.content(), rule.parseMode());
+            case "photo" -> apiService.sendPhoto(chatId, content, content);
+            default -> apiService.sendText(chatId, content, rule.parseMode());
         }
     }
 
